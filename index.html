@@ -141,19 +141,39 @@
             box-sizing: border-box;
         }
         #overlay-content {
-            background-color: var(--bg-color);
-            padding: 20px 30px;
-            border: 2px solid var(--border-color);
-            box-shadow: 0 0 15px var(--border-color), 0 0 30px var(--border-color) inset;
-            text-align: center;
+            background-color: #000000;
+            border: 2px solid #00FF00;
+            box-shadow:
+                0 0 15px #00FF00,
+                0 0 30px #00FF00 inset,
+                0 0 3px  #00A0FF inset;   /* subtle blue inner-glow */
+            padding: 24px 34px;
             max-width: 90%;
             max-height: 90vh;
             overflow-y: auto;
+            font-family: var(--font-family);
+            color: var(--primary-color);
+            text-shadow: 0 0 4px var(--primary-color);
         }
+
         #overlay-content h2 { font-size: 1.8em; margin-bottom: 15px; }
         #overlay-content p { margin-bottom: 15px; font-size: 1.1em; }
         #overlay-content pre { text-align: left; white-space: pre-wrap; max-height: 300px; overflow-y: auto;}
         
+        #overlay.console-mode #overlay-content{
+            background:#000;                           /* jet-black shell   */
+            border:2px solid #00ff00;                  /* neon border       */
+            box-shadow:0 0 15px #00ff00,
+                    0 0 25px #00ff00 inset;         /* CRT glow          */
+        }
+        #overlay-console-text{                         /* scrolling text area */
+            font-family:'Consolas','Courier New',monospace;
+            color:#00ff00;
+            text-shadow:0 0 3px #00ff00;
+            white-space:pre-wrap;                      /* keep \n spacing   */
+            line-height:1.35;
+        }
+
         .blinking-cursor {
             animation: blink 1s step-end infinite;
         }
@@ -276,6 +296,28 @@
             100%{transform:translateY(100%)}
         }
 
+        /* ===== SCORE-DELTA BURST ===== */
+        @keyframes pulseScore {
+        0%   { transform: scale(0.5); opacity: 0; }
+        35%  { transform: scale(1.6); opacity: 1; }
+        60%  { transform: scale(1.0); }
+        100% { opacity: 1; }
+        }
+
+        .score-delta {
+        color: #00FF00;                /* neon green */
+        display: inline-block;
+        font-family: var(--font-family);
+        font-size: 1.8em;
+        font-weight: bold;
+        letter-spacing: 1px;
+        text-shadow: 0 0 6px #00FF00, 0 0 12px #00FF00;
+        opacity: 0;                    /* shown via animation */
+        }
+        .score-delta.animate {
+        animation: pulseScore 1.2s cubic-bezier(.14,1,.3,1) forwards;
+        }
+
         /* ---- wave: Matrix stream ---- */
         .wave-fill{
             background:#001500;
@@ -358,7 +400,8 @@
             <div id="overlay-content">
                 <h2 id="overlay-title">SYSTEM BOOT</h2>
                 <pre id="boot-sequence-display" style="text-align: left; white-space: pre-wrap;"></pre>
-                <p id="transition-info-display" style="font-size: 1.2em;"></p>
+                <pre id="overlay-console-text"></pre>
+                <div id="overlay-transition-info" style="white-space:pre-wrap; margin-bottom:15px;"></div>
                 <button id="overlay-action-btn">INITIATE SWEEP</button>
             </div>
         </div>
@@ -373,6 +416,7 @@
             gameModules: [], // Will hold [MazeGame, SweeperGame, GalagaGame]
             
             dom: {
+                overlayTransitionInfo: document.getElementById('overlay-transition-info'),
                 cycleDisplay: document.getElementById('cycle-display'),
                 totalScoreDisplay: document.getElementById('total-score-display'),
                 currentGameDisplay: document.getElementById('current-game-display'),
@@ -381,7 +425,7 @@
                 logDisplay: document.getElementById('log-display'),
                 overlay: document.getElementById('overlay'),
                 overlayTitle: document.getElementById('overlay-title'),
-                overlayTransitionInfo: document.getElementById('transition-info-display'),
+                overlayConsoleText: document.getElementById('overlay-console-text'),  // ← new
                 overlayActionBtn: document.getElementById('overlay-action-btn'),
                 bootSequenceDisplay: document.getElementById('boot-sequence-display'),
                 cycleFill  : document.getElementById('cycle-fill'),
@@ -398,10 +442,20 @@
             },
 
             showBootScreen() {
+
+                /* ─── reset overlay state ─── */
+                this.dom.overlay.classList.remove('console-mode');
+                this.dom.overlayTransitionInfo.style.display = 'none';
+                this.dom.overlayTransitionInfo.textContent   = '';
+                this.dom.overlayConsoleText.style.display    = 'block';
+
                 this.dom.overlay.style.display = 'flex';
                 this.dom.overlayTitle.textContent = "SYSTEM BOOT";
                 this.dom.bootSequenceDisplay.style.display = 'block';
-                this.dom.transitionInfoDisplay.textContent = "";
+
+                //this.dom.overlayTransitionInfo.textContent = "";
+                this.dom.overlayConsoleText.innerHTML = '';
+
                 this.dom.overlayActionBtn.textContent = "INITIATE SEQUENCE";
                 this.dom.overlayActionBtn.style.display = 'none'; // Shown after typing
 
@@ -416,11 +470,14 @@
 > OBJECTIVE: Survive 5 cycles of increasing difficulty.
 > Each cycle contains 3 challenges.
 >
-> Press 'INITIATE SEQUENCE' to begin.<span class="blinking-cursor">_</span>`;
+> Press 'INITIATE SEQUENCE' to begin.`;
                 
-                this.typeMessage(this.dom.bootSequenceDisplay, bootMsg, () => {
-                    this.dom.overlayActionBtn.style.display = 'block';
-                });
+                // animate into the console-text area
+                this.typeMessage(
+                    this.dom.overlayConsoleText,
+                    bootMsg,
+                    () => { this.dom.overlayActionBtn.style.display = 'block' }
+                );
             },
 
             typeMessage(element, message, callback, index = 0, speed = 20) {
@@ -438,6 +495,7 @@
                 this.currentCycle = 1;
                 this.currentGameIndex = 0;
                 this.totalScore = 0;
+                this.lastScoreDelta = 0;
                 this.updateGlobalUI();
                 this.log("New game sequence started.");
                 this.loadNextGame();
@@ -455,9 +513,9 @@
                         this.overallWin();
                         return;
                     }
-                    this.showTransitionScreen(true); // True for start of new cycle
+                    this.showTransitionScreen(true, this.lastScoreDelta); // True for start of new cycle
                 } else {
-                    this.showTransitionScreen(false);
+                    this.showTransitionScreen(false, this.lastScoreDelta);
                 }
             },
 
@@ -484,24 +542,68 @@
                 gameModule.start();
             },
 
-            showTransitionScreen(isNewCycle) {
+            showTransitionScreen(isNewCycle, scoreDelta = 0) {
+                // 1) show overlay, hide boot log
                 this.dom.overlay.style.display = 'flex';
                 this.dom.bootSequenceDisplay.style.display = 'none';
-                
+
+                // 2) build title & message
                 let title, message;
                 if (isNewCycle) {
-                    title = `CYCLE ${this.currentCycle -1} COMPLETE`;
-                    message = `Total Score: ${this.totalScore}\n\nStarting Cycle ${this.currentCycle}.\nNext Game: ${this.gameModules[0].name}`;
+                    title   = `CYCLE ${this.currentCycle - 1} COMPLETE`;
+                    message = `Total Score: ${this.totalScore}\n\n` +
+                            `Starting Cycle ${this.currentCycle}.\n` +
+                            `Next Game: ${this.gameModules[0].name}`;
                 } else {
-                    title = `PREPARING NEXT CHALLENGE`;
-                    message = `Total Score: ${this.totalScore}\n\nCycle ${this.currentCycle} continues.\nNext Game: ${this.gameModules[this.currentGameIndex].name}`;
+                    title   = `PREPARING NEXT CHALLENGE`;
+                    message = `Total Score: ${this.totalScore}\n\n` +
+                            `Cycle ${this.currentCycle} continues.\n` +
+                            `Next Game: ${this.gameModules[this.currentGameIndex].name}`;
                 }
-                
+
+                // 3) colour‐code the heading
+                if      (title.includes('COMPLETE')) this.dom.overlayTitle.style.color = '#00FF00';
+                else if (title.includes('FAILED'))   this.dom.overlayTitle.style.color = '#FF0040';
+                else                                 this.dom.overlayTitle.style.color = '#00A0FF';
+
+                // 4) prepend score delta if any
+                if (scoreDelta > 0) {
+                    message = `+${scoreDelta}\n` + message;
+                }
+
+                // 5) set title
                 this.dom.overlayTitle.textContent = title;
-                this.dom.overlayTransitionInfo.innerHTML = message.replace(/\n/g, '<br>');
-                this.dom.overlayActionBtn.textContent = "CONTINUE";
-                this.dom.overlayActionBtn.onclick = () => this.startCurrentGame();
+
+                // 6) switch into console mode & clear old text
+                this.dom.overlay.classList.add('console-mode');
+                this.dom.overlayConsoleText.innerHTML = '';
+                this.dom.overlayActionBtn.style.display = 'none';
+
+                // 7) prepare plain‐text typing string (no <span> tags)
+                const typingString = message + '\n\nPress "CONTINUE" to proceed.';
+
+                // 8) type it out
+                this.typeMessage(
+                    this.dom.overlayConsoleText,
+                    typingString,
+                    () => {
+                        // once done, append a real <span> blinking cursor
+                        const cursor = document.createElement('span');
+                        cursor.classList.add('blinking-cursor');
+                        cursor.textContent = '_';
+                        this.dom.overlayConsoleText.appendChild(cursor);
+
+                        // show & wire up the button
+                        this.dom.overlayActionBtn.style.display = 'block';
+                        this.dom.overlayActionBtn.textContent = 'CONTINUE';
+                        this.dom.overlayActionBtn.onclick = () => this.startCurrentGame();
+                    }
+                );
+
+                // reset for next time
+                this.lastScoreDelta = 0;
             },
+
 
             updateGlobalUI() {
                 this.dom.cycleDisplay.textContent  = this.currentCycle;
@@ -512,19 +614,20 @@
 
             updateProgressBars() {
                 /* CYCLE (fills when a cycle is **completed**) */
-                const cyclesDone   = this.currentCycle - 1;           // 0-based completed count
+                const cyclesDone   = this.currentCycle;           // 0-based completed count
                 const cyclePct     = (cyclesDone / this.MAX_CYCLES) * 100;
                 this.dom.cycleFill.style.height = cyclePct + '%';
                 this.dom.cycleLabel.textContent = `${cyclesDone}/${this.MAX_CYCLES}`;
 
                 /* WAVE (fills as each game finishes) */
-                const wavesDone    = this.currentGameIndex;           // 0-based completed games this cycle
+                const wavesDone    = this.currentGameIndex+1;           // 0-based completed games this cycle
                 const wavePct      = (wavesDone / this.gameModules.length) * 100;
                 this.dom.waveFill.style.height  = wavePct + '%';
                 this.dom.waveLabel.textContent  = `${wavesDone}/${this.gameModules.length}`;
             },
 
             handleGameWin(scoreEarnedThisGame) {
+                this.lastScoreDelta = scoreEarnedThisGame;
                 this.log(`Game ${this.gameModules[this.currentGameIndex].name} WON! Score: ${scoreEarnedThisGame}`);
                 this.totalScore += scoreEarnedThisGame;
                 this.updateGlobalUI();
@@ -539,22 +642,36 @@
 
             handleGameLoss(reason) {
                 this.log(`Game ${this.gameModules[this.currentGameIndex].name} LOST: ${reason}`);
-                
+
+                // Shut the current mini-game down cleanly
                 if (this.gameModules[this.currentGameIndex].end) {
                     this.gameModules[this.currentGameIndex].end();
                 }
 
-                this.dom.overlay.style.display = 'flex';
-                this.dom.overlayTitle.textContent = "SEQUENCE FAILED";
-                this.dom.bootSequenceDisplay.style.display = 'none';
-                this.dom.overlayTransitionInfo.innerHTML = `Reason: ${reason}<br>Total Score: ${this.totalScore}<br>Reached Cycle ${this.currentCycle}, Game: ${this.gameModules[this.currentGameIndex].name}.`;
-                this.dom.overlayActionBtn.textContent = "RESTART SEQUENCE";
-                this.dom.overlayActionBtn.onclick = () => {
-                    // Ensure the button's action is properly reset for a clean re-initialization
-                    const btn = this.dom.overlayActionBtn;
-                    btn.onclick = null; // Temporarily disable to prevent multiple clicks during re-init
-                    this.init(); // This will re-assign the appropriate onclick for the boot screen
-                };
+                /* ---------- build failure summary ---------- */
+                const summary = [
+                    `Reason: ${reason}`,
+                    `Total Score: ${this.totalScore}`,
+                    `Reached Cycle: ${this.currentCycle}`,
+                    `Failed Game: ${this.gameModules[this.currentGameIndex].name}`
+                ].join('\n');
+
+                /* ---------- show overlay ---------- */
+                const d = this.dom;
+                d.overlay.style.display = 'flex';
+                d.overlay.classList.remove('console-mode');     // plain neon panel
+                d.overlayTitle.textContent = 'SEQUENCE FAILED';
+
+                d.bootSequenceDisplay.style.display   = 'none';
+                d.overlayConsoleText.style.display    = 'none';
+                d.overlayTransitionInfo.style.display = 'block';
+                d.overlayTransitionInfo.textContent   = summary;
+
+                /* ---------- restart button ---------- */
+                d.overlayActionBtn.style.display = 'block';
+                d.overlayActionBtn.textContent   = 'RESTART SEQUENCE';
+                d.overlayActionBtn.onclick = () => this.init();
+
             },
 
             overallWin() {
@@ -631,11 +748,20 @@
                 this.renderMaze();
             },
 
-            end() { // Called by ArcadeManager
+            end() {
+                /* halt timers / listeners exactly as before */
                 clearInterval(this.timerId);
-                this.timerId = null; // Ensure timerId is cleared
+                this.timerId = null;
+
+                /* remove any keys / events this module added */
                 document.removeEventListener('keydown', this.handleKey);
-                this.callbacks.addToLog("Maze Runner ended.");
+                document.removeEventListener('keyup',   this.handleKey);   // Galaga needs this
+
+                /* log only if callbacks are wired */
+                if (this.callbacks && this.callbacks.addToLog) {
+                    this.callbacks.addToLog(`${this.name || 'Game'} ended.`);
+                }
+                this.callbacks = null;   // mark inactive for safety
             },
             
             updateInfo() {
@@ -1278,7 +1404,7 @@
             },
             spawnBullet() {
                 if (this.bullets.length < 5) { 
-                    this.bullets.push({ x: this.player.drawX + Math.floor(this.player.width / 2), y: this.player.y - 1, char: '|' });
+                    this.bullets.push({x: this.player.drawX + Math.floor(this.player.width / 2), y: this.player.y - 1, prevY: this.player.y - 1, char: '|'});
                 }
             },
 
@@ -1294,8 +1420,8 @@
 
                 this.player.drawX = Math.round(this.player.x);
                 
-                this.bullets.forEach(b => b.y--);
-                this.bullets = this.bullets.filter(b => b.y >= 0);
+                this.bullets.forEach(b => {b.prevY = b.y;b.y -= 1;});
+                this.bullets = this.bullets.filter(b => b.y >= -2);
 
                 this.enemies.forEach(e => e.y += e.speed);
                 this.enemies = this.enemies.filter(e => e.y < this.config.screenHeightChars +1); 
@@ -1311,8 +1437,10 @@
                     const bullet = this.bullets[i];
                     for (let j = this.enemies.length - 1; j >= 0; j--) {
                         const enemy = this.enemies[j];
-                        if (Math.floor(bullet.y) === Math.floor(enemy.y) &&
-                            bullet.x >= enemy.x && bullet.x < enemy.x + enemy.width) {
+
+                        const crossesRow = bullet.prevY >= enemy.y && bullet.y <= enemy.y + 0.99;  
+
+                        if (crossesRow && bullet.x >= enemy.x && bullet.x <  enemy.x + enemy.width) {
                             this.score += enemy.points;
                             this.callbacks.updateTotalScore(enemy.points); 
                             this.enemies.splice(j, 1);
