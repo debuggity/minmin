@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRID_COMMAND_CYCLE</title>
+    <style>
+        :root {
+            --primary-color: #00FF00;
+            --bg-color: #000000;
+            --border-color: #00FF00;
+            --cell-bg: #003300;
+            --cell-border: #004400;
+            --cell-revealed-bg: #001500;
+            --cell-revealed-border: #002500;
+            --font-family: 'Consolas', 'Courier New', monospace;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--primary-color);
+            font-family: var(--font-family);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            margin: 0;
+            padding: 20px;
+            overflow-y: auto;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        #arcade-shell {
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            width: 95%;
+            max-width: 1000px;
+            box-shadow: 0 0 10px var(--border-color), 0 0 20px var(--border-color) inset;
+        }
+
+        h1, h2, h3 {
+            color: var(--primary-color);
+            text-shadow: 0 0 5px var(--primary-color);
+            margin-top: 0;
+        }
+
+        #header { text-align: center; margin-bottom: 15px; }
+
+        #global-info-panel {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px dashed var(--border-color);
+        }
+        #global-info-panel span { margin: 5px 10px; }
+
+        #game-specific-area {
+            min-height: 400px; /* Ensure space for games */
+            border: 1px solid #005000;
+            background-color: #001000;
+            padding: 10px;
+            margin-bottom: 15px;
+            display: flex; /* For centering game content */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            touch-action: none;
+        }
+
+        /* Common Grid Cell Styling (can be overridden by specific games) */
+        .grid-display {
+            display: grid;
+            gap: 1px;
+            border: 1px solid #005000;
+            background-color: #001000;
+            user-select: none;
+            touch-action: none; /* Prevent double tap zoom on mobile */
+            margin: auto; /* Center grid if smaller than container */
+        }
+
+        .grid-cell {
+            width: 20px;
+            height: 20px;
+            background-color: var(--cell-bg);
+            border: 1px solid var(--cell-border);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--primary-color);
+            position: relative; /* For decision point marker */
+        }
+
+        #log-area-container {
+            margin-top: 15px;
+            border: 1px dashed var(--border-color);
+            padding: 10px;
+            height: 150px;
+            overflow-y: auto;
+            background-color: #001000;
+        }
+        #log-area-container pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; font-size: 0.9em; }
+
+        button {
+            background-color: #004400;
+            color: var(--primary-color);
+            border: 1px solid var(--border-color);
+            padding: 8px 15px;
+            cursor: pointer;
+            font-family: inherit;
+            text-shadow: 0 0 3px var(--primary-color);
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #006600;
+            box-shadow: 0 0 8px var(--primary-color);
+        }
+        button:disabled {
+            background-color: #002200;
+            color: #005500;
+            border-color: #005500;
+            cursor: not-allowed;
+        }
+
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 20, 0, 0.95);
+            display: flex; /* Initially hidden, shown by JS */
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 15px;
+            box-sizing: border-box;
+        }
+        #overlay-content {
+            background-color: var(--bg-color);
+            padding: 20px 30px;
+            border: 2px solid var(--border-color);
+            box-shadow: 0 0 15px var(--border-color), 0 0 30px var(--border-color) inset;
+            text-align: center;
+            max-width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        #overlay-content h2 { font-size: 1.8em; margin-bottom: 15px; }
+        #overlay-content p { margin-bottom: 15px; font-size: 1.1em; }
+        #overlay-content pre { text-align: left; white-space: pre-wrap; max-height: 300px; overflow-y: auto;}
+        
+        .blinking-cursor {
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        /* Minesweeper Specific Styles */
+        .sweeper-cell.revealed { background-color: var(--cell-revealed-bg); border-color: var(--cell-revealed-border); cursor: default; }
+        .sweeper-cell.mine::before { content: "*"; color: #FF0000; font-weight: bold; }
+        .sweeper-cell.flagged::before { content: "P"; color: #FFFF00; font-weight: bold; }
+        .number-1 { color: #00FFFF; } .number-2 { color: #90EE90; } .number-3 { color: #FF4500; }
+        .number-4 { color: #FFFF00; } .number-5 { color: #FF00FF; } .number-6 { color: #FFA500; }
+        .number-7 { color: #DA70D6; } .number-8 { color: #D3D3D3; }
+
+        /* Maze Runner Specific Styles */
+        .maze-grid { /* Extends .grid-display */ }
+        .maze-cell { /* Extends .grid-cell */ width: 18px; height: 18px; font-size: 12px; }
+        .maze-cell.wall { background-color: #002200; }
+        .maze-cell.path { background-color: #001000; }
+        .maze-cell.player::before { content: "@"; color: #00FF00; font-weight: bold; z-index: 1; }
+        .maze-cell.key::before { content: "$"; color: #FFFF00; font-weight: bold; z-index: 1;}
+        .maze-cell.key-collected::before { content: "$"; color: #555500; z-index: 1;} /* Dim collected key */
+        .maze-cell.finish::before { content: "F"; color: #00FFFF; font-weight: bold; z-index: 1;}
+        .maze-cell.finish-locked::before { content: "F"; color: #005555; z-index: 1;} /* Dim locked finish */
+        .maze-cell.decision-point-marker::after { /* Visual cue for decision points */
+            content: '';
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background-color: #007700; /* A slightly darker green for subtlety */
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        #maze-info { margin-bottom: 10px; font-size: 0.9em; }
+
+
+        /* ASCII Galaga Specific Styles */
+        #galaga-area {
+            /* size the frame so 40 text columns fit perfectly */
+            width: calc(40ch + 5px);      /* 40 = screenWidthChars; +2px = the 1-pixel border on each side */
+            height: calc(35em * 0.75);    /* 20 rows * line-height ≈ 0.55em per row → matches char grid */
+            margin: 0 auto;               /* centre inside #game-specific-area */
+            
+            display: flex;                /* centre the <pre> inside the frame */
+            justify-content: center;
+            align-items: center;
+
+            background-color: #000500;
+            border: 1px solid var(--primary-color);
+            box-shadow: 0 0 10px var(--primary-color) inset;  /* optional CRT glow */
+            
+            font-family: var(--font-family);
+            font-size: 16px;
+            line-height: 1.1;
+            color: var(--primary-color);
+            overflow: hidden;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        #galaga-area pre {
+            white-space: pre;
+            margin: 0;
+            width: 100%;
+            height: 100%;
+        }
+         #galaga-info { margin-bottom: 10px; font-size: 0.9em; }
+
+         /* ==== PROGRESS-BAR WIDGETS ==== */
+        #progress-bar-area{
+            display:flex;
+            gap:22px;
+            align-items:flex-end;
+            margin-top:6px;
+        }
+        .progress-wrapper{
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            user-select:none;
+        }
+        .progress-bar{
+            width:24px;
+            height:140px;
+            border:1px solid var(--border-color);
+            background:#002000;
+            position:relative;
+            overflow:hidden;
+            box-shadow:0 0 6px #008000 inset;
+        }
+
+        /* common FILL base */
+        .progress-bar .progress-fill{
+            position:absolute;
+            bottom:0;
+            width:100%;
+            height:0;           /* grows via JS */
+            transition:height .4s ease-out;
+        }
+
+        /* ---- cycle: “black liquid & stars” ---- */
+        .cycle-fill{
+            background:#000;
+        }
+        .cycle-fill::before{
+            content:"************************************************";
+            position:absolute;
+            width:100%;  height:220%;
+            left:0; top:-100%;
+            font-size:7px;
+            line-height:7px;
+            color:#ff0080;
+            animation:starFloat 8s linear infinite;
+            text-align:center;
+        }
+        @keyframes starFloat{
+            0%{transform:translateY(0)}
+            100%{transform:translateY(100%)}
+        }
+
+        /* ---- wave: Matrix stream ---- */
+        .wave-fill{
+            background:#001500;
+        }
+        .wave-fill::before{
+            content:"010110001101001011001100101";
+            position:absolute;
+            width:100%; height:200%;
+            left:0; top:-100%;
+            font-size:9px;
+            line-height:9px;
+            color:#00ff00;
+            opacity:.8;
+            writing-mode:vertical-rl;
+            text-orientation:upright;
+            animation:matrixScroll 3s linear infinite;
+        }
+        @keyframes matrixScroll{
+            to{transform:translateY(100%)}
+        }
+
+        .progress-fraction{
+            margin-top:4px;
+            font-size:.8em;
+            color:var(--primary-color);
+            text-shadow:0 0 2px var(--primary-color);
+        }
+
+
+    </style>
+</head>
+<body>
+    <div id="arcade-shell">
+        <div id="header">
+            <h1>GRID_COMMAND_CYCLE</h1>
+        </div>
+
+        <div id="global-info-panel">
+            <span>Cycle: <span id="cycle-display">1</span></span>
+            <span>Total Score: <span id="total-score-display">0</span></span>
+            <span>Current Game: <span id="current-game-display">-</span></span>
+
+            <!-- ▼ Progress Bars -->
+            <div id="progress-bar-area">
+                <!-- CYCLE BAR -->
+                <div class="progress-wrapper">
+                    <div id="cycle-bar"   class="progress-bar">
+                        <div id="cycle-fill" class="cycle-fill"></div>
+                    </div>
+                    <span id="cycle-label" class="progress-fraction">0 / 5</span>
+                </div>
+            
+                <!-- WAVE BAR -->
+                <div class="progress-wrapper">
+                    <div id="wave-bar"   class="progress-bar">
+                        <div id="wave-fill"  class="wave-fill"></div>
+                    </div>
+                    <span id="wave-label"  class="progress-fraction">0 / 3</span>
+                </div>
+            </div>
+            <!-- ▲ Progress Bars -->
+  
+        </div>
+
+        <div id="game-specific-area">
+            <!-- Game content will be loaded here by JavaScript -->
+            <p>Initializing systems...</p>
+        </div>
+        
+        <div id="game-specific-info-area" style="text-align: center; margin-bottom:10px;">
+             <!-- Game specific status like timer, keys etc. -->
+        </div>
+
+
+        <div id="log-area-container">
+            <pre id="log-display">> SYSTEM LOG INITIATED <<\n</pre>
+        </div>
+
+        <div id="overlay" style="display:none;"> <!-- Initially hidden -->
+            <div id="overlay-content">
+                <h2 id="overlay-title">SYSTEM BOOT</h2>
+                <pre id="boot-sequence-display" style="text-align: left; white-space: pre-wrap;"></pre>
+                <p id="transition-info-display" style="font-size: 1.2em;"></p>
+                <button id="overlay-action-btn">INITIATE SWEEP</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ArcadeManager = {
+            currentCycle: 1,
+            currentGameIndex: 0, // 0: Maze, 1: Sweeper, 2: Galaga
+            totalScore: 0,
+            MAX_CYCLES: 5,
+            gameModules: [], // Will hold [MazeGame, SweeperGame, GalagaGame]
+            
+            dom: {
+                cycleDisplay: document.getElementById('cycle-display'),
+                totalScoreDisplay: document.getElementById('total-score-display'),
+                currentGameDisplay: document.getElementById('current-game-display'),
+                gameSpecificArea: document.getElementById('game-specific-area'),
+                gameSpecificInfoArea: document.getElementById('game-specific-info-area'),
+                logDisplay: document.getElementById('log-display'),
+                overlay: document.getElementById('overlay'),
+                overlayTitle: document.getElementById('overlay-title'),
+                overlayTransitionInfo: document.getElementById('transition-info-display'),
+                overlayActionBtn: document.getElementById('overlay-action-btn'),
+                bootSequenceDisplay: document.getElementById('boot-sequence-display'),
+                cycleFill  : document.getElementById('cycle-fill'),
+                waveFill   : document.getElementById('wave-fill'),
+                cycleLabel : document.getElementById('cycle-label'),
+                waveLabel  : document.getElementById('wave-label'),
+            },
+
+            init() {
+                this.log("ArcadeManager initializing...");
+                this.gameModules = [MazeGame, SweeperGame, GalagaGame]; // Order matters
+                this.dom.overlayActionBtn.onclick = () => this.startGameSequence();
+                this.showBootScreen();
+            },
+
+            showBootScreen() {
+                this.dom.overlay.style.display = 'flex';
+                this.dom.overlayTitle.textContent = "SYSTEM BOOT";
+                this.dom.bootSequenceDisplay.style.display = 'block';
+                this.dom.transitionInfoDisplay.textContent = "";
+                this.dom.overlayActionBtn.textContent = "INITIATE SEQUENCE";
+                this.dom.overlayActionBtn.style.display = 'none'; // Shown after typing
+
+                const bootMsg = `> BOOTING anom_OS v3.1…
+> Initializing Multi-Game Environment... [OK]
+> Calibrating Cycle Progression Matrix... [OK]
+> Loading Game Modules:
+>  - MAZE_RUNNER.MOD (v1.1)..... [LOADED]
+>  - GRID_SWEEPER.MOD .......... [LOADED]
+>  - ASTRO_GARDEN.MOD .......... [LOADED]
+> WELCOME, OPERATIVE.
+> OBJECTIVE: Survive 5 cycles of increasing difficulty.
+> Each cycle contains 3 challenges.
+>
+> Press 'INITIATE SEQUENCE' to begin.<span class="blinking-cursor">_</span>`;
+                
+                this.typeMessage(this.dom.bootSequenceDisplay, bootMsg, () => {
+                    this.dom.overlayActionBtn.style.display = 'block';
+                });
+            },
+
+            typeMessage(element, message, callback, index = 0, speed = 20) {
+                if (index < message.length) {
+                    element.innerHTML += message[index] === '\n' ? '<br>' : message[index];
+                    element.scrollTop = element.scrollHeight;
+                    setTimeout(() => this.typeMessage(element, message, callback, index + 1, speed), speed);
+                } else {
+                    element.innerHTML = element.innerHTML.replace(/<span class="blinking-cursor">_<\/span>$/, ''); // Remove cursor
+                    if (callback) callback();
+                }
+            },
+            
+            startGameSequence() {
+                this.currentCycle = 1;
+                this.currentGameIndex = 0;
+                this.totalScore = 0;
+                this.updateGlobalUI();
+                this.log("New game sequence started.");
+                this.loadNextGame();
+            },
+
+            loadNextGame() {
+                this.dom.overlay.style.display = 'none';
+                this.dom.gameSpecificArea.innerHTML = ""; // Clear previous game
+                this.dom.gameSpecificInfoArea.innerHTML = ""; // Clear previous game info
+
+                if (this.currentGameIndex >= this.gameModules.length) { // Cycle complete
+                    this.currentCycle++;
+                    this.currentGameIndex = 0;
+                    if (this.currentCycle > this.MAX_CYCLES) {
+                        this.overallWin();
+                        return;
+                    }
+                    this.showTransitionScreen(true); // True for start of new cycle
+                } else {
+                    this.showTransitionScreen(false);
+                }
+            },
+
+            startCurrentGame() {
+                this.dom.overlay.style.display = 'none';
+                const gameModule = this.gameModules[this.currentGameIndex];
+                this.dom.currentGameDisplay.textContent = gameModule.name;
+                this.log(`Starting Game: ${gameModule.name}, Cycle: ${this.currentCycle}`);
+
+                gameModule.init(
+                    this.dom.gameSpecificArea,
+                    this.dom.gameSpecificInfoArea,
+                    this.currentCycle,
+                    {
+                        onWin: (scoreEarned) => this.handleGameWin(scoreEarned),
+                        onLoss: (reason) => this.handleGameLoss(reason),
+                        addToLog: (msg) => this.log(`[${gameModule.name}] ${msg}`),
+                        updateTotalScore: (points) => { 
+                           this.totalScore += points;
+                           this.updateGlobalUI();
+                        }
+                    }
+                );
+                gameModule.start();
+            },
+
+            showTransitionScreen(isNewCycle) {
+                this.dom.overlay.style.display = 'flex';
+                this.dom.bootSequenceDisplay.style.display = 'none';
+                
+                let title, message;
+                if (isNewCycle) {
+                    title = `CYCLE ${this.currentCycle -1} COMPLETE`;
+                    message = `Total Score: ${this.totalScore}\n\nStarting Cycle ${this.currentCycle}.\nNext Game: ${this.gameModules[0].name}`;
+                } else {
+                    title = `PREPARING NEXT CHALLENGE`;
+                    message = `Total Score: ${this.totalScore}\n\nCycle ${this.currentCycle} continues.\nNext Game: ${this.gameModules[this.currentGameIndex].name}`;
+                }
+                
+                this.dom.overlayTitle.textContent = title;
+                this.dom.overlayTransitionInfo.innerHTML = message.replace(/\n/g, '<br>');
+                this.dom.overlayActionBtn.textContent = "CONTINUE";
+                this.dom.overlayActionBtn.onclick = () => this.startCurrentGame();
+            },
+
+            updateGlobalUI() {
+                this.dom.cycleDisplay.textContent  = this.currentCycle;
+                this.dom.totalScoreDisplay.textContent = this.totalScore;
+
+                this.updateProgressBars();          // ▼ new
+            },
+
+            updateProgressBars() {
+                /* CYCLE (fills when a cycle is **completed**) */
+                const cyclesDone   = this.currentCycle - 1;           // 0-based completed count
+                const cyclePct     = (cyclesDone / this.MAX_CYCLES) * 100;
+                this.dom.cycleFill.style.height = cyclePct + '%';
+                this.dom.cycleLabel.textContent = `${cyclesDone}/${this.MAX_CYCLES}`;
+
+                /* WAVE (fills as each game finishes) */
+                const wavesDone    = this.currentGameIndex;           // 0-based completed games this cycle
+                const wavePct      = (wavesDone / this.gameModules.length) * 100;
+                this.dom.waveFill.style.height  = wavePct + '%';
+                this.dom.waveLabel.textContent  = `${wavesDone}/${this.gameModules.length}`;
+            },
+
+            handleGameWin(scoreEarnedThisGame) {
+                this.log(`Game ${this.gameModules[this.currentGameIndex].name} WON! Score: ${scoreEarnedThisGame}`);
+                this.totalScore += scoreEarnedThisGame;
+                this.updateGlobalUI();
+                
+                if (this.gameModules[this.currentGameIndex].end) {
+                    this.gameModules[this.currentGameIndex].end();
+                }
+
+                this.currentGameIndex++;
+                this.loadNextGame();
+            },
+
+            handleGameLoss(reason) {
+                this.log(`Game ${this.gameModules[this.currentGameIndex].name} LOST: ${reason}`);
+                
+                if (this.gameModules[this.currentGameIndex].end) {
+                    this.gameModules[this.currentGameIndex].end();
+                }
+
+                this.dom.overlay.style.display = 'flex';
+                this.dom.overlayTitle.textContent = "SEQUENCE FAILED";
+                this.dom.bootSequenceDisplay.style.display = 'none';
+                this.dom.overlayTransitionInfo.innerHTML = `Reason: ${reason}<br>Total Score: ${this.totalScore}<br>Reached Cycle ${this.currentCycle}, Game: ${this.gameModules[this.currentGameIndex].name}.`;
+                this.dom.overlayActionBtn.textContent = "RESTART SEQUENCE";
+                this.dom.overlayActionBtn.onclick = () => {
+                    // Ensure the button's action is properly reset for a clean re-initialization
+                    const btn = this.dom.overlayActionBtn;
+                    btn.onclick = null; // Temporarily disable to prevent multiple clicks during re-init
+                    this.init(); // This will re-assign the appropriate onclick for the boot screen
+                };
+            },
+
+            overallWin() {
+                this.log("All cycles complete! VICTORY!");
+                this.dom.overlay.style.display = 'flex';
+                this.dom.overlayTitle.textContent = "SEQUENCE MASTERED!";
+                this.dom.bootSequenceDisplay.style.display = 'none';
+                this.dom.overlayTransitionInfo.innerHTML = `Congratulations, Operative! You have mastered all ${this.MAX_CYCLES} cycles!<br>Final Score: ${this.totalScore}`;
+                this.dom.overlayActionBtn.textContent = "REPLAY";
+                this.dom.overlayActionBtn.onclick = () => this.init();
+            },
+
+            log(message) {
+                console.log(message);
+                const time = new Date().toLocaleTimeString();
+                this.dom.logDisplay.innerHTML += `[${time}] ${message}\n`;
+                this.dom.logDisplay.scrollTop = this.dom.logDisplay.scrollHeight;
+            }
+        };
+
+        // --- Maze Runner Game Module (v1.1 - Decision Points Update) ---
+        const MazeGame = {
+            name: "Maze Runner",
+            container: null,
+            infoContainer: null,
+            cycle: 1,
+            callbacks: null,
+            maze: [], // Will be array of cell objects: {isWall, isKey, isFinish, isDecisionPoint, keyCollected}
+            player: { r: 0, c: 0 },
+            keysToCollect: 0,
+            keysCollected: 0,
+            finish: { r: 0, c: 0, locked: true },
+            timerId: null,
+            timeLeft: 0,
+            config: {
+                cellSize: 18, 
+                sizes: [ {w:7, h:7}, {w:9, h:9}, {w:11, h:11}, {w:13, h:13}, {w:15, h:15} ], 
+                numKeys: [1, 3, 4, 5, 6],
+                times: [25, 30, 35, 40, 45] // Increased times slightly
+            },
+            gridElement: null,
+
+            init(container, infoContainer, cycle, callbacks) {
+                this.container = container;
+                this.infoContainer = infoContainer;
+                this.cycle = cycle;
+                this.callbacks = callbacks;
+                
+                const cycleConfigIndex = Math.min(cycle - 1, this.config.sizes.length - 1);
+                this.mazeWidth = this.config.sizes[cycleConfigIndex].w * 2 + 1;
+                this.mazeHeight = this.config.sizes[cycleConfigIndex].h * 2 + 1;
+                this.keysToCollect = this.config.numKeys[cycleConfigIndex];
+                this.timeLeft = this.config.times[cycleConfigIndex];
+                this.keysCollected = 0;
+                this.finish.locked = true;
+
+                this.container.innerHTML = `<div id="maze-runner-grid" class="grid-display maze-grid"></div>`;
+                this.gridElement = document.getElementById('maze-runner-grid');
+                this.updateInfo();
+                this.generateMaze();
+            },
+
+            start() {
+                this.callbacks.addToLog("Maze Runner started. Use arrow keys to move.");
+                document.addEventListener('keydown', this.handleKey);
+                this.timerId = setInterval(() => {
+                    if (this.timeLeft <= 0) return; // Prevent timer from going negative if game ends before interval fires
+                    this.timeLeft--;
+                    this.updateInfo();
+                    if (this.timeLeft <= 0) {
+                        this.gameOver("Time ran out!");
+                    }
+                }, 1000);
+                this.renderMaze();
+            },
+
+            end() { // Called by ArcadeManager
+                clearInterval(this.timerId);
+                this.timerId = null; // Ensure timerId is cleared
+                document.removeEventListener('keydown', this.handleKey);
+                this.callbacks.addToLog("Maze Runner ended.");
+            },
+            
+            updateInfo() {
+                this.infoContainer.innerHTML = `<div id="maze-info">Time: ${this.timeLeft}s | Keys: ${this.keysCollected}/${this.keysToCollect}</div>`;
+            },
+
+            generateMaze() {
+                let numberMaze = Array(this.mazeHeight).fill(null).map(() => Array(this.mazeWidth).fill(1)); // 1 for wall
+
+                function carve(r, c, mazeToCarve, height, width) {
+                    mazeToCarve[r][c] = 0; // 0 for path
+                    const directions = [[0, 2], [2, 0], [0, -2], [-2, 0]];
+                    directions.sort(() => Math.random() - 0.5); 
+
+                    for (let [dr, dc] of directions) {
+                        const nr = r + dr, nc = c + dc;
+                        const wallR = r + dr / 2, wallC = c + dc / 2;
+                        if (nr > 0 && nr < height - 1 && nc > 0 && nc < width - 1 && mazeToCarve[nr][nc] === 1) {
+                            mazeToCarve[wallR][wallC] = 0;
+                            carve(nr, nc, mazeToCarve, height, width);
+                        }
+                    }
+                }
+                carve(1, 1, numberMaze, this.mazeHeight, this.mazeWidth);
+
+                // Convert number maze to object maze and identify decision points
+                this.maze = Array(this.mazeHeight).fill(null).map(() => Array(this.mazeWidth).fill(null));
+                for (let r = 0; r < this.mazeHeight; r++) {
+                    for (let c = 0; c < this.mazeWidth; c++) {
+                        const isWallCell = numberMaze[r][c] === 1;
+                        this.maze[r][c] = {
+                            isWall: isWallCell,
+                            isKey: false,
+                            isFinish: false,
+                            isDecisionPoint: false,
+                            keyCollected: false
+                        };
+
+                        if (!isWallCell) { // If it's a path, check if it's a decision point
+                            let pathNeighbors = 0;
+                            const DIRS = [[-1,0], [1,0], [0,-1], [0,1]];
+                            for (const [dr, dc] of DIRS) {
+                                const nr_check = r + dr;
+                                const nc_check = c + dc;
+                                if (nr_check >= 0 && nr_check < this.mazeHeight && nc_check >= 0 && nc_check < this.mazeWidth && numberMaze[nr_check][nc_check] === 0) {
+                                    pathNeighbors++;
+                                }
+                            }
+                            if (pathNeighbors >= 3) { // T-junction or crossroad
+                                this.maze[r][c].isDecisionPoint = true;
+                            }
+                        }
+                    }
+                }
+                
+                this.player = { r: 1, c: 1 };
+                if (this.maze[1][1].isWall) { 
+                    this.callbacks.addToLog("Error: Player start is wall. Fixing.");
+                    this.maze[1][1].isWall = false;
+                    // Ensure it's not a decision point if it was fixed to path
+                    if (this.maze[1][1].isDecisionPoint) this.maze[1][1].isDecisionPoint = false; 
+                }
+
+                // Place keys
+                for (let i = 0; i < this.keysToCollect; i++) {
+                    let kr, kc;
+                    let attempts = 0;
+                    do {
+                        kr = Math.floor(Math.random() * (this.mazeHeight - 2)) + 1; // Ensure within pathable area
+                        kc = Math.floor(Math.random() * (this.mazeWidth - 2)) + 1;
+                        attempts++;
+                        if (attempts > this.mazeHeight * this.mazeWidth * 2) { 
+                            this.callbacks.addToLog("Warning: Could not place all keys despite attempts."); break;
+                        }
+                    } while (this.maze[kr][kc].isWall || this.maze[kr][kc].isKey || this.maze[kr][kc].isFinish || (kr === this.player.r && kc === this.player.c));
+                    if (!this.maze[kr][kc].isWall) this.maze[kr][kc].isKey = true; else if(attempts <= this.mazeHeight * this.mazeWidth *2) i--; // Try placing this key again
+                }
+                
+                // Place finish
+                let finish_attempts = 0;
+                do {
+                    this.finish.r = Math.floor(Math.random() * (this.mazeHeight - 2)) + 1;
+                    this.finish.c = Math.floor(Math.random() * (this.mazeWidth - 2)) + 1;
+                    finish_attempts++;
+                    if (finish_attempts > this.mazeHeight * this.mazeWidth * 2) { 
+                        this.callbacks.addToLog("Warning: Could not place finish despite attempts."); break;
+                    }
+                } while (this.maze[this.finish.r][this.finish.c].isWall || this.maze[this.finish.r][this.finish.c].isKey || this.maze[this.finish.r][this.finish.c].isFinish || (this.finish.r === this.player.r && this.finish.c === this.player.c));
+                if(!this.maze[this.finish.r][this.finish.c].isWall) this.maze[this.finish.r][this.finish.c].isFinish = true;
+            },
+
+            renderMaze() {
+                this.gridElement.innerHTML = '';
+                this.gridElement.style.gridTemplateColumns = `repeat(${this.mazeWidth}, ${this.config.cellSize}px)`;
+                this.gridElement.style.gridTemplateRows = `repeat(${this.mazeHeight}, ${this.config.cellSize}px)`;
+
+                for (let r = 0; r < this.mazeHeight; r++) {
+                    for (let c = 0; c < this.mazeWidth; c++) {
+                        const cellDiv = document.createElement('div');
+                        cellDiv.classList.add('grid-cell', 'maze-cell');
+                        const cellData = this.maze[r][c];
+
+                        if (cellData.isWall) cellDiv.classList.add('wall');
+                        else cellDiv.classList.add('path');
+
+                        if (r === this.player.r && c === this.player.c) cellDiv.classList.add('player');
+                        
+                        if (cellData.isKey) {
+                            cellDiv.classList.add('key');
+                            if (cellData.keyCollected) cellDiv.classList.add('key-collected');
+                        }
+
+                        if (cellData.isFinish) {
+                            cellDiv.classList.add('finish');
+                            if (this.finish.locked) cellDiv.classList.add('finish-locked');
+                        }
+                        if (cellData.isDecisionPoint && !cellData.isWall && !(r === this.player.r && c === this.player.c) && !cellData.isKey && !cellData.isFinish) {
+                            cellDiv.classList.add('decision-point-marker');
+                        }
+                        this.gridElement.appendChild(cellDiv);
+                    }
+                }
+            },
+
+            handleKey: (e) => { 
+                if (!MazeGame.timerId || MazeGame.timeLeft <=0) return; 
+                let dr = 0, dc = 0;
+                switch (e.key) {
+                    case 'ArrowUp': dr = -1; break;
+                    case 'ArrowDown': dr = 1; break;
+                    case 'ArrowLeft': dc = -1; break;
+                    case 'ArrowRight': dc = 1; break;
+                    default: return;
+                }
+                e.preventDefault();
+
+                const { r: initialR, c: initialC } = MazeGame.player; // Player's position before this move
+                let slidedToR = initialR;
+                let slidedToC = initialC;
+
+                while (true) {
+                    const nextStepR = slidedToR + dr;
+                    const nextStepC = slidedToC + dc;
+
+                    // ---- 1. grid edge ----
+                    if (nextStepR < 0 || nextStepR >= MazeGame.mazeHeight ||
+                        nextStepC < 0 || nextStepC >= MazeGame.mazeWidth) {
+                        break;
+                    }
+
+                    const nextCell = MazeGame.maze[nextStepR][nextStepC];
+
+                    // ---- 2. barrier = wall only ----
+                    if (nextCell.isWall) break;
+
+                    // ---- 3. advance slide ----
+                    slidedToR = nextStepR;
+                    slidedToC = nextStepC;
+                    const cellPlayerIsOn = nextCell;
+
+                    // ---- 4. key pickup ----
+                    if (cellPlayerIsOn.isKey && !cellPlayerIsOn.keyCollected) {
+                        cellPlayerIsOn.keyCollected = true;
+                        MazeGame.keysCollected++;
+                        MazeGame.callbacks.addToLog(
+                            `Collected key (${MazeGame.keysCollected}/${MazeGame.keysToCollect})`
+                        );
+                        if (MazeGame.keysCollected === MazeGame.keysToCollect) {
+                            MazeGame.finish.locked = false;   // purely visual now
+                            MazeGame.callbacks.addToLog("All keys collected! Finish unlocked.");
+                        }
+                        MazeGame.updateInfo();
+                    }
+
+                    // ---- 5. finish check ----
+                    if (cellPlayerIsOn.isFinish) {
+                        if (MazeGame.keysCollected === MazeGame.keysToCollect) {
+                            MazeGame.player.r = slidedToR;
+                            MazeGame.player.c = slidedToC;
+                            MazeGame.gameWon();
+                            return;           // no further processing
+                        }
+                        // Not enough keys yet → treat like normal path, keep sliding
+                    }
+
+                    // ---- 6. decision-point stop ----
+                    if (cellPlayerIsOn.isDecisionPoint &&
+                        (slidedToR !== initialR || slidedToC !== initialC)) {
+                        break;
+                    }
+                }
+
+
+                MazeGame.player.r = slidedToR;
+                MazeGame.player.c = slidedToC;
+
+                if (MazeGame.player.r === MazeGame.finish.r && MazeGame.player.c === MazeGame.finish.c && !MazeGame.finish.locked) {
+                    MazeGame.gameWon();
+                } else { // Only render if game not won, as gameWon will trigger transition
+                    MazeGame.renderMaze();
+                }
+            },
+
+            gameWon() {
+                if (!this.timerId) return; // Already ended
+                this.callbacks.addToLog("Maze cleared!");
+                const score = this.timeLeft * 10; // Keys score added globally by ArcadeManager
+                this.callbacks.onWin(score); 
+            },
+
+            gameOver(reason) {
+                if (!this.timerId) return; // Already ended
+                this.callbacks.addToLog(`Maze failed: ${reason}`);
+                this.callbacks.onLoss(reason);
+            }
+        };
+
+        // --- Grid Sweeper Game Module (Refactored) ---
+        const SweeperGame = {
+            name: "Grid Sweeper",
+            container: null,
+            infoContainer: null,
+            cycle: 1,
+            callbacks: null,
+            gs: {}, // Game State for sweeper
+            config: {
+                cellSize: 20,
+                gridSizes: [6, 8, 12, 16, 22], // Size (N x N)
+                minePercentage: 0.12
+            },
+            gridElement: null,
+
+            init(container, infoContainer, cycle, callbacks) {
+                this.container = container;
+                this.infoContainer = infoContainer;
+                this.cycle = cycle;
+                this.callbacks = callbacks;
+
+                const cycleConfigIndex = Math.min(cycle - 1, this.config.gridSizes.length - 1);
+                const gridSize = this.config.gridSizes[cycleConfigIndex];
+
+                this.gs = {
+                    grid: [],
+                    rows: gridSize,
+                    cols: gridSize,
+                    numMines: Math.floor(gridSize * gridSize * this.config.minePercentage),
+                    flagsPlaced: 0,
+                    cellsRevealed: 0,
+                    totalNonMineCells: 0,
+                    gameOver: false,
+                    firstClick: true,
+                    firstClickCell: { r: -1, c: -1 }, 
+                };
+                
+                this.container.innerHTML = `<div id="sweeper-grid" class="grid-display"></div>`;
+                this.gridElement = document.getElementById('sweeper-grid');
+                this.gs.totalNonMineCells = (this.gs.rows * this.gs.cols) - this.gs.numMines; // Calculate early for display
+                this.updateInfo();
+                this.renderInitialGridShell(); 
+            },
+            
+            renderInitialGridShell() { 
+                this.gridElement.innerHTML = '';
+                this.gridElement.style.gridTemplateColumns = `repeat(${this.gs.cols}, ${this.config.cellSize}px)`;
+                this.gridElement.style.gridTemplateRows = `repeat(${this.gs.rows}, ${this.config.cellSize}px)`;
+
+                for (let r = 0; r < this.gs.rows; r++) {
+                    this.gs.grid[r] = [];
+                    for (let c = 0; c < this.gs.cols; c++) {
+                        this.gs.grid[r][c] = { 
+                            isMine: false, isRevealed: false, isFlagged: false, adjacentMines: 0
+                        };
+                        const div = document.createElement('div');
+                        div.classList.add('grid-cell', 'sweeper-cell');
+                        div.dataset.r = r;
+                        div.dataset.c = c;
+                        div.addEventListener('click', () => this.handleLeftClick(r, c));
+                        div.addEventListener('contextmenu', (e) => {
+                            e.preventDefault();
+                            this.handleRightClick(r, c);
+                        });
+                        this.gridElement.appendChild(div);
+                    }
+                }
+            },
+
+            start() {
+                this.callbacks.addToLog("Grid Sweeper started. Click to reveal, Right-click to flag.");
+            },
+            
+            end() {
+                 this.callbacks.addToLog("Grid Sweeper ended.");
+            },
+
+            updateInfo() {
+                 this.infoContainer.innerHTML = `<div id="sweeper-info">Mines: ${this.gs.numMines} | Flags: ${this.gs.flagsPlaced} | Revealed: ${this.gs.cellsRevealed}/${this.gs.totalNonMineCells || (this.gs.rows*this.gs.cols - this.gs.numMines)}</div>`;
+            },
+
+            setupGridAndMines() { 
+                const { r: firstR, c: firstC } = this.gs.firstClickCell;
+                
+                for (let r_init = 0; r_init < this.gs.rows; r_init++) {
+                    for (let c_init = 0; c_init < this.gs.cols; c_init++) {
+                        this.gs.grid[r_init][c_init].isMine = false;
+                        this.gs.grid[r_init][c_init].adjacentMines = 0;
+                    }
+                }
+
+                let minesToPlace = this.gs.numMines;
+                const safeZone = [];
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                         const nr = firstR + dr;
+                         const nc = firstC + dc;
+                         if (nr >=0 && nr < this.gs.rows && nc >=0 && nc < this.gs.cols) {
+                            safeZone.push(`${nr},${nc}`);
+                         }
+                    }
+                }
+                
+                let attempts = 0;
+                let actualMinesPlaced = 0;
+                while (minesToPlace > 0 && attempts < this.gs.rows * this.gs.cols * 2) { 
+                    const r = Math.floor(Math.random() * this.gs.rows);
+                    const c = Math.floor(Math.random() * this.gs.cols);
+                    if (!this.gs.grid[r][c].isMine && !safeZone.includes(`${r},${c}`)) {
+                        this.gs.grid[r][c].isMine = true;
+                        minesToPlace--;
+                        actualMinesPlaced++;
+                    }
+                    attempts++;
+                }
+                 if (minesToPlace > 0) this.callbacks.addToLog(`Warning: Could not place all ${this.gs.numMines} mines. Placed ${actualMinesPlaced}.`);
+                 this.gs.numMines = actualMinesPlaced; // Update to actual mines on grid.
+
+
+                for (let r_adj = 0; r_adj < this.gs.rows; r_adj++) {
+                    for (let c_adj = 0; c_adj < this.gs.cols; c_adj++) {
+                        if (this.gs.grid[r_adj][c_adj].isMine) continue;
+                        let count = 0;
+                        for (let dr = -1; dr <= 1; dr++) {
+                            for (let dc = -1; dc <= 1; dc++) {
+                                if (dr === 0 && dc === 0) continue;
+                                const nr = r_adj + dr;
+                                const nc = c_adj + dc;
+                                if (nr >= 0 && nr < this.gs.rows && nc >= 0 && nc < this.gs.cols && this.gs.grid[nr][nc].isMine) {
+                                    count++;
+                                }
+                            }
+                        }
+                        this.gs.grid[r_adj][c_adj].adjacentMines = count;
+                    }
+                }
+                this.gs.totalNonMineCells = (this.gs.rows * this.gs.cols) - this.gs.numMines; 
+                this.updateInfo(); 
+            },
+
+            renderGrid() { 
+                this.gridElement.innerHTML = ''; 
+                this.gridElement.style.gridTemplateColumns = `repeat(${this.gs.cols}, ${this.config.cellSize}px)`;
+                this.gridElement.style.gridTemplateRows = `repeat(${this.gs.rows}, ${this.config.cellSize}px)`;
+
+                for (let r = 0; r < this.gs.rows; r++) {
+                    for (let c = 0; c < this.gs.cols; c++) {
+                        const cell = this.gs.grid[r][c];
+                        const div = document.createElement('div');
+                        div.classList.add('grid-cell', 'sweeper-cell');
+                        div.dataset.r = r;
+                        div.dataset.c = c;
+
+                        if (cell.isRevealed) {
+                            div.classList.add('revealed');
+                            if (cell.isMine) {
+                                div.classList.add('mine');
+                            } else if (cell.adjacentMines > 0) {
+                                div.textContent = cell.adjacentMines;
+                                div.classList.add(`number-${Math.min(cell.adjacentMines, 8)}`);
+                            }
+                        } else { 
+                            if (cell.isFlagged) {
+                                div.classList.add('flagged');
+                            }
+                        }
+                        if (!this.gs.gameOver) {
+                            div.addEventListener('click', () => this.handleLeftClick(r, c));
+                            div.addEventListener('contextmenu', (e) => {
+                                e.preventDefault();
+                                this.handleRightClick(r, c);
+                            });
+                        }
+                        this.gridElement.appendChild(div);
+                    }
+                }
+            },
+
+            handleLeftClick(r, c) {
+                if (this.gs.gameOver) return;
+                
+                if (this.gs.firstClick) {
+                    this.gs.firstClick = false;
+                    this.gs.firstClickCell = { r, c };
+                    this.setupGridAndMines(); 
+                    this.revealCell(r, c, true); 
+                    this.renderGrid(); 
+                    return;
+                }
+
+                const cell = this.gs.grid[r][c];
+                if (cell.isRevealed || cell.isFlagged) return;
+                
+                this.revealCell(r,c, false);
+                if (!this.gs.gameOver) this.renderGrid(); // Don't re-render if game just ended in revealCell
+            },
+            
+            revealCell(r, c, isFirstClickContext = false) { 
+                const cell = this.gs.grid[r][c];
+                // If already revealed or flagged, or game is over, do nothing
+                if (cell.isRevealed || cell.isFlagged || this.gs.gameOver) return;
+            
+                cell.isRevealed = true;
+            
+                if (cell.isMine) {
+                    this.gameOver("Hit a mine!"); // This will call renderGrid after setting mines
+                    return;
+                }
+            
+                this.gs.cellsRevealed++;
+                this.callbacks.updateTotalScore(10); 
+            
+                // Flood fill logic
+                if (cell.adjacentMines === 0) {
+                    for (let dr = -1; dr <= 1; dr++) {
+                        for (let dc = -1; dc <= 1; dc++) {
+                            // For regular flood fill, (dr === 0 && dc === 0) means current cell, skip.
+                            if (dr === 0 && dc === 0) continue; 
+                            const nr = r + dr;
+                            const nc = c + dc;
+                            if (nr >= 0 && nr < this.gs.rows && nc >= 0 && nc < this.gs.cols) {
+                                this.revealCell(nr, nc, false); // Not firstClickContext for recursive calls
+                            }
+                        }
+                    }
+                } 
+                // If it's the first click context, and the initially clicked cell was a 0,
+                // also reveal its direct non-mine neighbors even if they have numbers.
+                // This is implicitly handled by the above if adjacentMines === 0, which is guaranteed for first click cell.
+                // The guarantee is that the first clicked cell will be a 0, so its neighbors will be revealed by the normal flood fill.
+                // If it was NOT a 0, it would be revealed, and its neighbors (if numbers) would not auto-reveal.
+                // The core idea of "good start" is the 3x3 safe zone, making the clicked cell a 0.
+            
+                this.updateInfo();
+                this.checkWinCondition(); // This might call gameWon(), which could render.
+            },
+
+            handleRightClick(r, c) {
+                if (this.gs.gameOver || this.gs.firstClick) return; 
+                const cell = this.gs.grid[r][c];
+                if (cell.isRevealed) return;
+
+                cell.isFlagged = !cell.isFlagged;
+                if (cell.isFlagged) {
+                    this.gs.flagsPlaced++;
+                    if (cell.isMine) this.callbacks.updateTotalScore(20); 
+                    else this.callbacks.updateTotalScore(-10); 
+                } else {
+                    this.gs.flagsPlaced--;
+                }
+                this.updateInfo();
+                this.renderGrid(); 
+            },
+
+            revealAllMines() {
+                for (let r_reveal = 0; r_reveal < this.gs.rows; r_reveal++) {
+                    for (let c_reveal = 0; c_reveal < this.gs.cols; c_reveal++) {
+                        if (this.gs.grid[r_reveal][c_reveal].isMine) {
+                            this.gs.grid[r_reveal][c_reveal].isRevealed = true;
+                        }
+                    }
+                }
+            },
+
+            checkWinCondition() {
+                if (!this.gs.gameOver && this.gs.cellsRevealed === this.gs.totalNonMineCells && this.gs.totalNonMineCells > 0) {
+                    this.gameWon();
+                }
+            },
+
+            gameWon() {
+                if(this.gs.gameOver) return; // Prevent multiple calls
+                this.gs.gameOver = true; 
+                this.callbacks.addToLog("Grid Sweeper map cleared!");
+                this.callbacks.updateTotalScore(this.gs.numMines * 30); 
+                this.renderGrid(); 
+                this.callbacks.onWin(0); 
+            },
+
+            gameOver(reason) {
+                if(this.gs.gameOver) return; // Prevent multiple calls
+                this.gs.gameOver = true; 
+                this.callbacks.addToLog(`Grid Sweeper failed: ${reason}`);
+                this.revealAllMines();
+                this.renderGrid(); 
+                this.callbacks.onLoss(reason);
+            }
+        };
+
+        // --- ASCII Galaga Game Module ---
+        const GalagaGame = {
+            name: "Astro Garden",
+            container: null,
+            infoContainer: null,
+            cycle: 1,
+            callbacks: null,
+            config: {
+                survivalTime: 35, 
+                targetScores: [800, 1000, 1100, 1400, 1600],
+                enemyBaseSpeed: [0.05, 0.07, 0.075, 0.08, 0.085], 
+                enemySpawnInterval: [1500, 1200, 1000, 900, 800], 
+                asteroidSpawnInterval: [2000, 1700, 1400, 1200, 1100],
+                screenWidthChars: 40,
+                screenHeightChars: 20,
+            },
+            player: { x: 0, y: 0, char: '^A^', width: 3, vx: 0 },
+            keysPressed: {},
+            playerSpeed: 0.40,
+            bullets: [],
+            enemies: [], 
+            asteroids: [], 
+            score: 0,
+            timeLeft: 0,
+            targetScore: 0,
+            gameLoopId: null,
+            spawnTimers: {},
+            gameScreen: null, 
+            charBuffer: [], 
+            isActive: false, 
+
+            init(container, infoContainer, cycle, callbacks) {
+                this.container = container;
+                this.infoContainer = infoContainer;
+                this.cycle = cycle;
+                this.callbacks = callbacks;
+                this.isActive = false; 
+
+                this.keysPressed     = { left: false, right: false };
+
+                const cIdx = Math.min(cycle - 1, this.config.targetScores.length - 1);
+                this.timeLeft = this.config.survivalTime;
+                this.targetScore = this.config.targetScores[cIdx];
+                this.currentEnemySpeed = this.config.enemyBaseSpeed[cIdx];
+                this.currentEnemySpawnInterval = this.config.enemySpawnInterval[cIdx];
+                this.currentAsteroidSpawnInterval = this.config.asteroidSpawnInterval[cIdx];
+                
+                this.score = 0;
+                this.bullets = [];
+                this.enemies = [];
+                this.asteroids = [];
+                
+                this.player.x = Math.floor(this.config.screenWidthChars / 2) - Math.floor(this.player.width / 2);
+                this.player.y = this.config.screenHeightChars - 1;
+
+                this.container.innerHTML = `<div id="galaga-area"><pre id="galaga-screen"></pre></div>`;
+                this.gameScreen = document.getElementById('galaga-screen');
+                this.updateInfo();
+                this.initCharBuffer();
+                this.renderGameScreen(); 
+            },
+
+            initCharBuffer() {
+                this.charBuffer = [];
+                for (let i = 0; i < this.config.screenHeightChars; i++) {
+                    this.charBuffer[i] = Array(this.config.screenWidthChars).fill(' ');
+                }
+            },
+            
+            updateInfo() {
+                 this.infoContainer.innerHTML = `<div id="galaga-info">Time: ${this.timeLeft}s | Score: ${this.score} / ${this.targetScore}</div>`;
+            },
+
+            start() {
+                this.isActive = true;
+                this.callbacks.addToLog("Astro Garden started. Left/Right Arrows to move, Space to shoot.");
+                document.addEventListener('keydown', this.handleKeyDown);
+                document.addEventListener('keyup',   this.handleKeyUp);
+                
+                this.spawnTimers.mainLoop = setInterval(() => {
+                    if (!this.isActive || this.timeLeft <=0) return;
+                    this.timeLeft--;
+                    this.updateInfo();
+                    if (this.timeLeft <= 0) this.checkGameEnd();
+                }, 1000);
+
+                this.spawnTimers.enemy = setInterval(() => { if (this.isActive) this.spawnEnemy(); }, this.currentEnemySpawnInterval);
+                this.spawnTimers.asteroid = setInterval(() => { if (this.isActive) this.spawnAsteroid(); }, this.currentAsteroidSpawnInterval);
+
+                this.gameLoopId = requestAnimationFrame(this.gameLoop);
+            },
+
+            end() {
+                this.isActive = false; 
+                if (this.gameLoopId) cancelAnimationFrame(this.gameLoopId);
+                this.gameLoopId = null;
+                
+                Object.values(this.spawnTimers).forEach(timerId => clearInterval(timerId));
+                this.spawnTimers = {};
+
+                document.removeEventListener('keydown', this.handleKeyDown);
+                document.removeEventListener('keyup',   this.handleKeyUp);
+                this.callbacks.addToLog("Astro Garden ended.");
+            },
+            
+            gameLoop: () => { 
+                if (!GalagaGame.isActive) return; 
+                GalagaGame.updateGameObjects();
+                GalagaGame.checkCollisions(); // This might call gameOver, which sets isActive=false
+                if (!GalagaGame.isActive) return; // Re-check after collisions
+                GalagaGame.renderGameScreen();
+                GalagaGame.gameLoopId = requestAnimationFrame(GalagaGame.gameLoop);
+            },
+
+            handleKeyDown(e) {
+                if (!GalagaGame.isActive) return;
+                if (e.key === 'ArrowLeft')  GalagaGame.keysPressed.left  = true;
+                if (e.key === 'ArrowRight') GalagaGame.keysPressed.right = true;
+                if (e.key === ' ') { e.preventDefault(); GalagaGame.spawnBullet(); }
+            },
+
+            handleKeyUp(e) {
+                if (e.key === 'ArrowLeft')  GalagaGame.keysPressed.left  = false;
+                if (e.key === 'ArrowRight') GalagaGame.keysPressed.right = false;
+            },
+
+            spawnEnemy() {
+                const x = Math.floor(Math.random() * (this.config.screenWidthChars - 2)); 
+                this.enemies.push({ x, y: 0, char: ' V ', colour:'#04A5FF', width: 3, type:'plant', points:50, speed:this.currentEnemySpeed });
+            },
+            spawnAsteroid() {
+                 const x = Math.floor(Math.random() * this.config.screenWidthChars);
+                 this.asteroids.push({ x, y: 0, char: '*', colour:'#FF3030', width:1,type:'asteroid', speed:this.currentEnemySpeed*0.8 });
+            },
+            spawnBullet() {
+                if (this.bullets.length < 5) { 
+                    this.bullets.push({ x: this.player.drawX + Math.floor(this.player.width / 2), y: this.player.y - 1, char: '|' });
+                }
+            },
+
+            updateGameObjects() {
+
+                if (this.keysPressed.left)  this.player.vx = -this.playerSpeed;
+                else if (this.keysPressed.right) this.player.vx =  this.playerSpeed;
+                else this.player.vx = 0;
+                this.player.x += this.player.vx;
+                this.player.x = Math.max(0,
+                    Math.min(this.config.screenWidthChars - this.player.width,
+                        this.player.x));
+
+                this.player.drawX = Math.round(this.player.x);
+                
+                this.bullets.forEach(b => b.y--);
+                this.bullets = this.bullets.filter(b => b.y >= 0);
+
+                this.enemies.forEach(e => e.y += e.speed);
+                this.enemies = this.enemies.filter(e => e.y < this.config.screenHeightChars +1); 
+                
+                this.asteroids.forEach(a => a.y += a.speed);
+                this.asteroids = this.asteroids.filter(a => a.y < this.config.screenHeightChars + 1);
+            },
+
+            checkCollisions() {
+                if(!this.isActive) return;
+
+                for (let i = this.bullets.length - 1; i >= 0; i--) {
+                    const bullet = this.bullets[i];
+                    for (let j = this.enemies.length - 1; j >= 0; j--) {
+                        const enemy = this.enemies[j];
+                        if (Math.floor(bullet.y) === Math.floor(enemy.y) &&
+                            bullet.x >= enemy.x && bullet.x < enemy.x + enemy.width) {
+                            this.score += enemy.points;
+                            this.callbacks.updateTotalScore(enemy.points); 
+                            this.enemies.splice(j, 1);
+                            this.bullets.splice(i, 1);
+                            this.updateInfo();
+                            break; 
+                        }
+                    }
+                }
+
+                const playerY = Math.floor(this.player.y);
+                [...this.enemies, ...this.asteroids].forEach(obj => {
+                    if(!this.isActive) return; // Check again in case a collision already ended the game
+                    const objY = Math.floor(obj.y);
+                    if (objY < playerY + 1 && objY +1 > playerY && 
+                        this.player.drawX < obj.x + obj.width &&
+                        this.player.drawX + this.player.width > obj.x) {
+                        this.gameOver("Collision!");
+                    }
+                });
+            },
+            
+            renderGameScreen() {
+                if(!this.gameScreen) return; // Screen element might not be ready on very first call or after end
+                for (let r = 0; r < this.config.screenHeightChars; r++) {
+                    for (let c = 0; c < this.config.screenWidthChars; c++) {
+                        this.charBuffer[r][c] = '&nbsp;';
+                    }
+                }
+
+                for (let i = 0; i < this.player.width; i++) {
+                    if (this.player.drawX + i < this.config.screenWidthChars && this.player.drawX + i >= 0) {
+                         this.charBuffer[this.player.y][this.player.drawX + i] = this.player.char[i];
+                    }
+                }
+                this.bullets.forEach(b => {
+                    const y = Math.floor(b.y);
+                    const x = Math.floor(b.x);
+                    if (y >= 0 && y < this.config.screenHeightChars && x >=0 && x < this.config.screenWidthChars) this.charBuffer[y][x] = b.char;
+                });
+                this.enemies.forEach(e => {
+                     const y = Math.floor(e.y);
+                     if (y >=0 && y < this.config.screenHeightChars) {
+                        for (let i = 0; i < e.width; i++) {
+                           const x = Math.floor(e.x + i);
+                           if (x < this.config.screenWidthChars && x >= 0) this.charBuffer[y][x] = `<span style="color:${e.colour}">${e.char[i]}</span>`;
+                        }
+                     }
+                });
+                this.asteroids.forEach(a => {
+                    const y = Math.floor(a.y);
+                    const x = Math.floor(a.x);
+                     if (y >=0 && y < this.config.screenHeightChars && x >=0 && x < this.config.screenWidthChars) this.charBuffer[y][x] = `<span style="color:${a.colour}">${a.char}</span>`;
+                });
+                this.gameScreen.innerHTML = this.charBuffer.map(row => row.join('')).join('\n');
+            },
+            
+            checkGameEnd() { 
+                if (!this.isActive) return; 
+                if (this.score >= this.targetScore) {
+                    this.gameWon();
+                } else {
+                    this.gameOver(`Time up! Score ${this.score} < Target ${this.targetScore}`);
+                }
+            },
+
+            gameWon() {
+                 if (!this.isActive) return;
+                 this.isActive = false; 
+                 this.callbacks.addToLog("Astro Garden wave survived and target score met!");
+                 this.callbacks.onWin(0); 
+            },
+            gameOver(reason) {
+                if (!this.isActive) return;
+                this.isActive = false; 
+                this.callbacks.addToLog(`Astro Garden failed: ${reason}`);
+                this.callbacks.onLoss(reason);
+            }
+        };
+
+        // --- Initialize Arcade ---
+        window.onload = () => {
+            ArcadeManager.init();
+        };
+    </script>
+</body>
+</html>
