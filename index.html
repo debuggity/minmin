@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GRID_COMMAND_CYCLE</title>
+    <title>MinMin [grdn_OS]</title>
     <style>
         :root {
             --primary-color: #00FF00;
@@ -345,14 +345,58 @@
             color:var(--primary-color);
             text-shadow:0 0 2px var(--primary-color);
         }
-
+        #fork-overlay {
+            position: fixed;
+            inset: 0;
+            background: #000900 url('data:image/svg+xml,%3Csvg xmlns%3D%22http%3A//www.w3.org/2000/svg%22 width%3D%22100%25%22 height%3D%22100%25%22%3E%3Cdefs%3E%3ClinearGradient id%3D%22g%22 x1%3D%220%22 x2%3D%220%22 y1%3D%220%22 y2%3D%221%22%3E%3Cstop offset%3D%220%25%22 stop-color%3D%22%23002200%22/%3E%3Cstop offset%3D%22100%25%22 stop-color%3D%22%23000000%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width%3D%22100%25%22 height%3D%22100%25%22 fill%3D%22url(%23g)%22/%3E%3C/svg%3E') repeat;
+            display: none;
+            z-index: 1200;
+            padding: 40px 25px;
+            box-sizing: border-box;
+            overflow: auto;
+            text-align: center;
+        }
+        #fork-overlay h2{
+            font-size:2em; margin-bottom:25px;
+            color:#00FF80; text-shadow:0 0 6px #00FF80;
+        }
+        .path-gallery{
+            display:flex; flex-wrap:wrap; gap:30px; justify-content:center;
+        }
+        .game-card{
+            width:200px;          /* narrower */
+            background:#001300;
+            border:2px solid #007700;
+            border-radius:10px;
+            box-shadow:0 0 12px #009900 inset,0 0 6px #003300;
+            padding:14px 14px 10px;
+            cursor:pointer;
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            transition:transform .25s, box-shadow .25s;
+        }
+        .game-card:hover{
+            transform:scale(1.05);
+            box-shadow:0 0 14px #00FF00;
+        }
+        .game-card img{
+            width:100%;
+            aspect-ratio:4/3;     /* keeps them short */
+            object-fit:cover;
+            margin-bottom:6px;
+            border:1px solid #004400;
+        }
+        .card-title{      font-size:1.1em; margin-bottom:4px; }
+        .card-difficulty{ font-size:.85em; margin-bottom:6px;}
+        .card-how{        font-size:.8em;  line-height:1.3;}
 
     </style>
 </head>
 <body>
     <div id="arcade-shell">
         <div id="header">
-            <h1>GRID_COMMAND_CYCLE</h1>
+            <h1>MinMin [grdn_OS]</h1>
         </div>
 
         <div id="global-info-panel">
@@ -402,9 +446,11 @@
                 <pre id="boot-sequence-display" style="text-align: left; white-space: pre-wrap;"></pre>
                 <pre id="overlay-console-text"></pre>
                 <div id="overlay-transition-info" style="white-space:pre-wrap; margin-bottom:15px;"></div>
+                <div id="choice-gallery" class="path-gallery" style="display:none;"></div>
                 <button id="overlay-action-btn">INITIATE SWEEP</button>
             </div>
         </div>
+        
     </div>
 
     <script>
@@ -412,9 +458,15 @@
             currentCycle: 1,
             currentGameIndex: 0, // 0: Maze, 1: Sweeper, 2: Galaga
             totalScore: 0,
+
+            GAMES_PER_CYCLE: 3,
+            playsThisCycle: 0,
             MAX_CYCLES: 5,
-            gameModules: [], // Will hold [MazeGame, SweeperGame, GalagaGame]
             
+            gameModules: [], // Will hold [MazeGame, SweeperGame, GalagaGame]
+
+            availableGames: [],          // remaining choices this cycle
+ 
             dom: {
                 overlayTransitionInfo: document.getElementById('overlay-transition-info'),
                 cycleDisplay: document.getElementById('cycle-display'),
@@ -437,6 +489,7 @@
             init() {
                 this.log("ArcadeManager initializing...");
                 this.gameModules = [MazeGame, SweeperGame, GalagaGame]; // Order matters
+                this.availableGames = [...this.gameModules];   // reset full list each new sequence
                 this.dom.overlayActionBtn.onclick = () => this.startGameSequence();
                 this.showBootScreen();
             },
@@ -459,16 +512,16 @@
                 this.dom.overlayActionBtn.textContent = "INITIATE SEQUENCE";
                 this.dom.overlayActionBtn.style.display = 'none'; // Shown after typing
 
-                const bootMsg = `> BOOTING anom_OS v3.1…
-> Initializing Multi-Game Environment... [OK]
+                const bootMsg = `> BOOTING grdn_OS v3.1…
+> Initializing Multi-Path Environment... [OK]
 > Calibrating Cycle Progression Matrix... [OK]
 > Loading Game Modules:
 >  - MAZE_RUNNER.MOD (v1.1)..... [LOADED]
 >  - GRID_SWEEPER.MOD .......... [LOADED]
 >  - ASTRO_GARDEN.MOD .......... [LOADED]
 > WELCOME, OPERATIVE.
-> OBJECTIVE: Survive 5 cycles of increasing difficulty.
-> Each cycle contains 3 challenges.
+> OBJECTIVE: Resolve 5 cycle anomalies of increasing complexity.
+> Each cycle in grdn_OS contains 3 paths to resolve.
 >
 > Press 'INITIATE SEQUENCE' to begin.`;
                 
@@ -495,6 +548,7 @@
                 this.currentCycle = 1;
                 this.currentGameIndex = 0;
                 this.totalScore = 0;
+                this.playsThisCycle = 0;
                 this.lastScoreDelta = 0;
                 this.updateGlobalUI();
                 this.log("New game sequence started.");
@@ -542,7 +596,8 @@
                 gameModule.start();
             },
 
-            showTransitionScreen(isNewCycle, scoreDelta = 0) {
+            showTransitionScreen(isNewCycle, scoreDelta = 0, afterTypingCallback = null) {
+
                 // 1) show overlay, hide boot log
                 this.dom.overlay.style.display = 'flex';
                 this.dom.bootSequenceDisplay.style.display = 'none';
@@ -552,13 +607,11 @@
                 if (isNewCycle) {
                     title   = `CYCLE ${this.currentCycle - 1} COMPLETE`;
                     message = `Total Score: ${this.totalScore}\n\n` +
-                            `Starting Cycle ${this.currentCycle}.\n` +
-                            `Next Game: ${this.gameModules[0].name}`;
+                            `Starting Cycle ${this.currentCycle}.\n`;
                 } else {
                     title   = `PREPARING NEXT CHALLENGE`;
                     message = `Total Score: ${this.totalScore}\n\n` +
-                            `Cycle ${this.currentCycle} continues.\n` +
-                            `Next Game: ${this.gameModules[this.currentGameIndex].name}`;
+                            `Cycle ${this.currentCycle} continues.\n`;
                 }
 
                 // 3) colour‐code the heading
@@ -580,7 +633,7 @@
                 this.dom.overlayActionBtn.style.display = 'none';
 
                 // 7) prepare plain‐text typing string (no <span> tags)
-                const typingString = message + '\n\nPress "CONTINUE" to proceed.';
+                const typingString = message + '\n\nChoose your PATH to proceed.';
 
                 // 8) type it out
                 this.typeMessage(
@@ -597,6 +650,8 @@
                         this.dom.overlayActionBtn.style.display = 'block';
                         this.dom.overlayActionBtn.textContent = 'CONTINUE';
                         this.dom.overlayActionBtn.onclick = () => this.startCurrentGame();
+
+                        if (afterTypingCallback) afterTypingCallback();
                     }
                 );
 
@@ -604,6 +659,40 @@
                 this.lastScoreDelta = 0;
             },
 
+            showFork() {
+                /* where to inject */
+                const gallery = document.getElementById('choice-gallery');
+                gallery.style.display = 'flex';
+                gallery.innerHTML = '';
+
+                /* ✧ get 2 random games ≠ last played */
+                const lastPlayed = this.gameModules[this.currentGameIndex];
+                const pool = this.gameModules.filter(g => g !== lastPlayed);
+                pool.sort(() => Math.random() - 0.5);       // shuffle
+                const choices = pool.slice(0, 2);
+
+                /* build the cards */
+                choices.forEach(mod => {
+                    const meta = GameMeta[mod.name.replace(/\s+/g,'')];
+                    const card = document.createElement('div');
+                    card.className = 'game-card';
+                    card.innerHTML = `
+                        <img src="${meta.thumb}" alt="">
+                        <div class="card-title">${mod.name}</div>
+                        <div class="card-difficulty">${meta.difficultyName(this.currentCycle)}</div>
+                        <div class="card-how">${meta.shortHow.replace(/\n/g,'<br>')}</div>`;
+                    card.onclick = () => {
+                        gallery.style.display = 'none';      // hide gallery
+                        this.currentGameIndex = this.gameModules.indexOf(mod);
+                        this.startCurrentGame();
+                    };
+                    gallery.appendChild(card);
+                });
+
+                /* hide the CONTINUE button & extra text */
+                this.dom.overlayActionBtn.style.display = 'none';
+                this.dom.overlayTransitionInfo.style.display = 'none';
+            },
 
             updateGlobalUI() {
                 this.dom.cycleDisplay.textContent  = this.currentCycle;
@@ -613,31 +702,59 @@
             },
 
             updateProgressBars() {
-                /* CYCLE (fills when a cycle is **completed**) */
-                const cyclesDone   = this.currentCycle;           // 0-based completed count
-                const cyclePct     = (cyclesDone / this.MAX_CYCLES) * 100;
+                /* CYCLE bar – fills once a cycle is finished */
+                const cyclePct = (this.currentCycle-1) / this.MAX_CYCLES * 100;
                 this.dom.cycleFill.style.height = cyclePct + '%';
-                this.dom.cycleLabel.textContent = `${cyclesDone}/${this.MAX_CYCLES}`;
+                this.dom.cycleLabel.textContent = `${this.currentCycle-1}/${this.MAX_CYCLES}`;
 
-                /* WAVE (fills as each game finishes) */
-                const wavesDone    = this.currentGameIndex+1;           // 0-based completed games this cycle
-                const wavePct      = (wavesDone / this.gameModules.length) * 100;
+                /* WAVE bar – fills as games are cleared this cycle */
+                const wavePct = this.playsThisCycle / this.GAMES_PER_CYCLE * 100;
                 this.dom.waveFill.style.height  = wavePct + '%';
-                this.dom.waveLabel.textContent  = `${wavesDone}/${this.gameModules.length}`;
+                this.dom.waveLabel.textContent  = `${this.playsThisCycle}/${this.GAMES_PER_CYCLE}`;
             },
 
+
             handleGameWin(scoreEarnedThisGame) {
-                this.lastScoreDelta = scoreEarnedThisGame;
-                this.log(`Game ${this.gameModules[this.currentGameIndex].name} WON! Score: ${scoreEarnedThisGame}`);
-                this.totalScore += scoreEarnedThisGame;
+                // ── 1. record score and increment play count
+                this.lastScoreDelta  = scoreEarnedThisGame;
+                this.totalScore     += scoreEarnedThisGame;
+                this.playsThisCycle += 1;
                 this.updateGlobalUI();
-                
-                if (this.gameModules[this.currentGameIndex].end) {
-                    this.gameModules[this.currentGameIndex].end();
+
+                // ── 2. figure out what just played
+                const played = this.gameModules[this.currentGameIndex];
+
+                // ── 3. cycle-end check
+                if (this.playsThisCycle >= this.GAMES_PER_CYCLE) {
+                    // reset for next cycle
+                    this.playsThisCycle = 0;
+                    this.currentCycle  += 1;
+
+                    if (this.currentCycle > this.MAX_CYCLES) {
+                        // all cycles done
+                        this.overallWin();
+                        return;
+                    }
+
+                    // celebration overlay → then show two-choice fork
+                    this.showTransitionScreen(
+                        true,                           // new cycle
+                        scoreEarnedThisGame,
+                        () => this.showFork()
+                    );
+                } else {
+                    // still within the same cycle → show fork immediately after transition
+                    this.showTransitionScreen(
+                        false,                          // same cycle
+                        scoreEarnedThisGame,
+                        () => this.showFork()
+                    );
                 }
 
-                this.currentGameIndex++;
-                this.loadNextGame();
+                // ── 4. clean up the finished game
+                if (played.end) {
+                    played.end();
+                }
             },
 
             handleGameLoss(reason) {
@@ -691,6 +808,27 @@
                 this.dom.logDisplay.scrollTop = this.dom.logDisplay.scrollHeight;
             }
         };
+
+        /* ---------- GAME REGISTRY ---------- */
+        const GameMeta = {
+            MazeRunner : {
+                thumb : 'assets/maze.png',
+                shortHow: 'Slide with ↑↓←→ until you hit a wall or junction.\nGrab all keys, then reach the F.',
+                difficultyName(cycle){ return ['Sprout','Sapling','Stalk','Bloom','Elder'][cycle-1]; }
+            },
+            GridSweeper: {
+                thumb : 'assets/sweeper.png',
+                shortHow: 'Reveal safe tiles, flag mines (right-click).\nFirst click is always safe.',
+                difficultyName(cycle){ return ['Pebble','Stone','Boulder','Cliff','Mountain'][cycle-1]; }
+            },
+            AstroGarden: {
+                thumb : 'assets/astra.png',
+                shortHow: '←/→ to move, Space to shoot.\nHit score before timer ends.',
+                difficultyName(cycle){ return ['Orbit I','Orbit II','Orbit III','Nebula','Supernova'][cycle-1]; }
+            },
+            /* ✧ add future modules here the same way */
+        };
+
 
         // --- Maze Runner Game Module (v1.1 - Decision Points Update) ---
         const MazeGame = {
