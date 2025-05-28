@@ -607,11 +607,11 @@
                 if (isNewCycle) {
                     title   = `CYCLE ${this.currentCycle - 1} COMPLETE`;
                     message = `Total Score: ${this.totalScore}\n\n` +
-                            `Starting Cycle ${this.currentCycle}.\n`;
+                            `Starting Cycle ${this.currentCycle}/5.\n`;
                 } else {
                     title   = `PREPARING NEXT CHALLENGE`;
                     message = `Total Score: ${this.totalScore}\n\n` +
-                            `Cycle ${this.currentCycle} continues.\n`;
+                            `Cycle ${this.currentCycle}/5 continues.\n`;
                 }
 
                 // 3) colour‐code the heading
@@ -715,43 +715,37 @@
 
 
             handleGameWin(scoreEarnedThisGame) {
-                // ── 1. record score and increment play count
                 this.lastScoreDelta  = scoreEarnedThisGame;
                 this.totalScore     += scoreEarnedThisGame;
                 this.playsThisCycle += 1;
                 this.updateGlobalUI();
 
-                // ── 2. figure out what just played
                 const played = this.gameModules[this.currentGameIndex];
 
-                // ── 3. cycle-end check
                 if (this.playsThisCycle >= this.GAMES_PER_CYCLE) {
-                    // reset for next cycle
+                    // end of cycle
                     this.playsThisCycle = 0;
-                    this.currentCycle  += 1;
+                    this.currentCycle++;
 
                     if (this.currentCycle > this.MAX_CYCLES) {
-                        // all cycles done
                         this.overallWin();
                         return;
                     }
 
-                    // celebration overlay → then show two-choice fork
                     this.showTransitionScreen(
-                        true,                           // new cycle
+                        true,
                         scoreEarnedThisGame,
                         () => this.showFork()
                     );
                 } else {
-                    // still within the same cycle → show fork immediately after transition
+                    // still within the same cycle
                     this.showTransitionScreen(
-                        false,                          // same cycle
-                        scoreEarnedThisGame,
+                        false,
+                        scoreEarnedThisGame,    // ← now correctly passed
                         () => this.showFork()
                     );
                 }
 
-                // ── 4. clean up the finished game
                 if (played.end) {
                     played.end();
                 }
