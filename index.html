@@ -391,6 +391,29 @@
         .card-difficulty{ font-size:.85em; margin-bottom:6px;}
         .card-how{        font-size:.8em;  line-height:1.3;}
 
+        /* ——— Root Circuit: Start/End styling ——— */
+        .rc-start {
+        background-color: #04A5FF !important;    /* bright green */
+        cursor: default;                          /* non-rotatable */
+        }
+        .rc-end {
+        background-color: #ff0000 !important;    /* bright red */
+        cursor: default;
+        }
+
+        /* ================= MOBILE (≤600 px) ================= */
+        @media (max-width:600px){
+            body            { padding:10px; }
+            #arcade-shell   { width:100%; max-width:none; padding:10px; }
+            h1              { font-size:1.25em; margin-bottom:8px; }
+            h2,h3           { font-size:1em;  }
+            #global-info-panel{ flex-direction:column; font-size:.9em; }
+            .progress-bar   { height:90px; width:20px; }
+            #game-specific-area{ min-height:300px; }
+            #overlay-content{ max-width:100%; font-size:.85em; padding:16px 18px; }
+        }
+
+
     </style>
 </head>
 <body>
@@ -454,6 +477,12 @@
     </div>
 
     <script>
+
+        /* ----------- mobile helpers ----------- */
+        const isMobile = matchMedia('(pointer: coarse)').matches;     // true on phones/tablets
+        const tapOpts  = { passive: true };                           // shorthand
+
+
         const ArcadeManager = {
             currentCycle: 1,
             currentGameIndex: 0, // 0: Maze, 1: Sweeper, 2: Galaga
@@ -488,7 +517,7 @@
 
             init() {
                 this.log("ArcadeManager initializing...");
-                this.gameModules = [MazeGame, SweeperGame, GalagaGame]; // Order matters
+                this.gameModules = [MazeGame, SweeperGame, GalagaGame, RootCircuitGame]; // Order matters
                 this.availableGames = [...this.gameModules];   // reset full list each new sequence
                 this.dom.overlayActionBtn.onclick = () => this.startGameSequence();
                 this.showBootScreen();
@@ -519,6 +548,7 @@
 >  - MAZE_RUNNER.MOD (v1.1)..... [LOADED]
 >  - GRID_SWEEPER.MOD .......... [LOADED]
 >  - ASTRO_GARDEN.MOD .......... [LOADED]
+>  - ROOT_CIRCUIT.MOD .......... [LOADED]
 > WELCOME, OPERATIVE.
 > OBJECTIVE: Resolve 5 cycle anomalies of increasing complexity.
 > Each cycle in grdn_OS contains 3 paths to resolve.
@@ -546,13 +576,26 @@
             
             startGameSequence() {
                 this.currentCycle = 1;
-                this.currentGameIndex = 0;
-                this.totalScore = 0;
                 this.playsThisCycle = 0;
+                this.totalScore = 0;
                 this.lastScoreDelta = 0;
                 this.updateGlobalUI();
                 this.log("New game sequence started.");
-                this.loadNextGame();
+
+                // Ensure the overlay is in “console” style without previous boot text
+                this.dom.overlay.classList.add('console-mode');
+                this.dom.bootSequenceDisplay.style.display = 'none';
+                this.dom.overlayConsoleText.style.display = 'block';
+                this.dom.overlayConsoleText.innerHTML = ''; 
+                this.dom.overlayTitle.textContent = "CHOOSE YOUR PATH";
+
+                // Write a short prompt and then show two-game fork
+                const prompt = "Select any of the two games below to begin.";
+                this.typeMessage(
+                this.dom.overlayConsoleText,
+                prompt + "\n\n",
+                () => this.showFork()
+                );
             },
 
             loadNextGame() {
@@ -703,9 +746,9 @@
 
             updateProgressBars() {
                 /* CYCLE bar – fills once a cycle is finished */
-                const cyclePct = (this.currentCycle-1) / this.MAX_CYCLES * 100;
+                const cyclePct = (this.currentCycle) / this.MAX_CYCLES * 100;
                 this.dom.cycleFill.style.height = cyclePct + '%';
-                this.dom.cycleLabel.textContent = `${this.currentCycle-1}/${this.MAX_CYCLES}`;
+                this.dom.cycleLabel.textContent = `${this.currentCycle}/${this.MAX_CYCLES}`;
 
                 /* WAVE bar – fills as games are cleared this cycle */
                 const wavePct = this.playsThisCycle / this.GAMES_PER_CYCLE * 100;
@@ -820,6 +863,11 @@
                 shortHow: '←/→ to move, Space to shoot.\nHit score before timer ends.',
                 difficultyName(cycle){ return ['Orbit I','Orbit II','Orbit III','Nebula','Supernova'][cycle-1]; }
             },
+            RootCircuit: {
+                thumb: 'assets/root.png',
+                shortHow: 'Rotate tiles to connect a path from top to bottom.\nComplete before the circuit pulses!',
+                difficultyName(cycle) { return ['Boot', 'Flow', 'Pulse', 'Surge', 'Overload'][cycle-1]; }
+            },
             /* ✧ add future modules here the same way */
         };
 
@@ -841,7 +889,7 @@
             config: {
                 cellSize: 18, 
                 sizes: [ {w:7, h:7}, {w:9, h:9}, {w:11, h:11}, {w:13, h:13}, {w:15, h:15} ], 
-                numKeys: [1, 3, 4, 5, 6],
+                numKeys: [2, 3, 4, 5, 6],
                 times: [25, 30, 35, 40, 45] // Increased times slightly
             },
             gridElement: null,
@@ -869,6 +917,23 @@
             start() {
                 this.callbacks.addToLog("Maze Runner started. Use arrow keys to move.");
                 document.addEventListener('keydown', this.handleKey);
+                
+                if (isMobile){
+                    let sx=0, sy=0;
+                    this.gridElement.addEventListener('touchstart', e=>{
+                        const t=e.touches[0]; sx=t.clientX; sy=t.clientY;
+                    }, tapOpts);
+                    this.gridElement.addEventListener('touchend', e=>{
+                        const t=e.changedTouches[0];
+                        const dx=t.clientX-sx, dy=t.clientY-sy;
+                        const absX=Math.abs(dx), absY=Math.abs(dy);
+                        if (absX<20 && absY<20) return;               // ignore tiny moves
+                        const key = absX>absY ? (dx>0?'ArrowRight':'ArrowLeft')
+                                            : (dy>0?'ArrowDown':'ArrowUp');
+                        this.handleKey({ key });                      // fake keyboard event
+                    }, tapOpts);
+                }
+                                
                 this.timerId = setInterval(() => {
                     if (this.timeLeft <= 0) return; // Prevent timer from going negative if game ends before interval fires
                     this.timeLeft--;
@@ -1153,6 +1218,20 @@
                 this.gs.totalNonMineCells = (this.gs.rows * this.gs.cols) - this.gs.numMines; // Calculate early for display
                 this.updateInfo();
                 this.renderInitialGridShell(); 
+
+                this.flagMode = false;                               // ← new
+
+                if (isMobile){
+                    const toggle = document.createElement('div');
+                    toggle.id = 'sweeper-mobile-controls';
+                    toggle.innerHTML = `<label style="font-size:.85em;">
+                        <input type="checkbox" id="flag-toggle"> Flag Mode</label>`;
+                    this.infoContainer.appendChild(toggle);
+                    toggle.querySelector('#flag-toggle').addEventListener('change', e=>{
+                        this.flagMode = e.target.checked;
+                    }, tapOpts);
+                }
+
             },
             
             renderInitialGridShell() { 
@@ -1291,21 +1370,30 @@
 
             handleLeftClick(r, c) {
                 if (this.gs.gameOver) return;
-                
+
+                /* ─── Mobile: when “Flag Mode” switch is on, a tap works like a right-click ─── */
+                // ┌───────────────────────────────────────────────────────────────────────────┐
+                if (isMobile && this.flagMode) {
+                    this.handleRightClick(r, c);   // place / remove flag
+                    return;                         // skip reveal logic
+                }
+                // └───────────────────────────────────────────────────────────────────────────┘
+
+                /* ─── Desktop (or mobile in Reveal mode) ─── */
                 if (this.gs.firstClick) {
                     this.gs.firstClick = false;
                     this.gs.firstClickCell = { r, c };
-                    this.setupGridAndMines(); 
-                    this.revealCell(r, c, true); 
-                    this.renderGrid(); 
+                    this.setupGridAndMines();          // build mines away from safe zone
+                    this.revealCell(r, c, true);       // good-start flood fill
+                    this.renderGrid();
                     return;
                 }
 
                 const cell = this.gs.grid[r][c];
                 if (cell.isRevealed || cell.isFlagged) return;
-                
-                this.revealCell(r,c, false);
-                if (!this.gs.gameOver) this.renderGrid(); // Don't re-render if game just ended in revealCell
+
+                this.revealCell(r, c, false);
+                if (!this.gs.gameOver) this.renderGrid();   // skip if reveal ended game
             },
             
             revealCell(r, c, isFirstClickContext = false) { 
@@ -1474,6 +1562,24 @@
             },
 
             start() {
+
+                this.tiltGamma = 0;
+                if (isMobile && window.DeviceOrientationEvent){
+                    const orientCb = e => { this.tiltGamma = e.gamma || 0; };
+                    if (DeviceOrientationEvent.requestPermission){
+                        DeviceOrientationEvent.requestPermission().then(p=>{
+                            if (p==='granted') window.addEventListener('deviceorientation',orientCb);
+                        });
+                    }else{
+                        window.addEventListener('deviceorientation', orientCb);
+                    }
+                    /* tap anywhere on frame to shoot */
+                    this.container.addEventListener('touchstart', e=>{
+                        e.preventDefault(); this.spawnBullet();
+                    }, tapOpts);
+                }
+
+
                 this.isActive = true;
                 this.callbacks.addToLog("Astro Garden started. Left/Right Arrows to move, Space to shoot.");
                 document.addEventListener('keydown', this.handleKeyDown);
@@ -1541,6 +1647,12 @@
             },
 
             updateGameObjects() {
+
+                if (isMobile){                // tilt-based
+                    if (this.tiltGamma < -5)      this.player.vx = -this.playerSpeed;
+                    else if (this.tiltGamma > 5)  this.player.vx =  this.playerSpeed;
+                    else                          this.player.vx = 0;
+                }
 
                 if (this.keysPressed.left)  this.player.vx = -this.playerSpeed;
                 else if (this.keysPressed.right) this.player.vx =  this.playerSpeed;
@@ -1652,6 +1764,221 @@
                 this.callbacks.onLoss(reason);
             }
         };
+
+        /* ──────────────────────────────────────────────────────────────
+        Root Circuit  v1.8 — always-solvable, never starts solved
+        ---------------------------------------------------------------- */
+        const RootCircuitGame = {
+        name : "Root Circuit",
+
+        /* injected by ArcadeManager */
+        container:null, infoContainer:null, cycle:1, callbacks:null,
+
+        /* runtime */
+        grid:[], gridSize:0, timeLeft:0, timerId:null, solved:false,
+        startCol:0, endCol:0,
+
+        /* constants */
+        config : {sizes:[6,7,9,11,13], times:[60,70,80,90,100]},
+        DIRS   : [[-1,0],[0,1],[1,0],[0,-1]],                  // U,R,D,L
+        SHAPES : [                                              // base rotations
+            [1,0,1,0], [0,1,0,1], [1,1,0,0],
+            [0,1,1,0], [0,0,1,1], [1,0,0,1]
+        ],
+
+        /* ───────────────── life-cycle ───────────────── */
+        init(container,infoContainer,cycle,cb){
+            Object.assign(this,{container,infoContainer,cycle,callbacks:cb});
+            const idx=Math.min(cycle-1,this.config.sizes.length-1);
+            this.gridSize=this.config.sizes[idx];
+            this.timeLeft=this.config.times[idx];
+            this.solved=false;
+            this.buildGrid();
+            this.render();
+            this.updateInfo();
+        },
+        start(){
+            this.callbacks.addToLog(
+            "Root Circuit: rotate tiles to link  S  (green) to  E  (red)."
+            );
+            this.timerId=setInterval(()=>{
+            this.timeLeft--; this.updateInfo();
+            if(this.timeLeft<=0) this.gameOver("Signal surge – circuit overloaded!");
+            },1000);
+        },
+        end(){
+            clearInterval(this.timerId);
+            this.callbacks?.addToLog("Root Circuit ended.");
+        },
+
+        /* ───────────────── UI ───────────────── */
+        updateInfo(){
+            this.infoContainer.innerHTML=
+            `<div id="rootcircuit-info">⏱ ${this.timeLeft}s   Grid ${this.gridSize}×${this.gridSize}</div>`;
+        },
+        render(){
+            this.container.innerHTML='<div id="rootcircuit-grid" class="grid-display"></div>';
+            const g=document.getElementById('rootcircuit-grid');
+            g.style.gridTemplateColumns=`repeat(${this.gridSize},24px)`;
+            g.style.gridTemplateRows   =`repeat(${this.gridSize},24px)`;
+
+            for(let r=0;r<this.gridSize;r++){
+            for(let c=0;c<this.gridSize;c++){
+                const t=this.grid[r][c], cell=document.createElement('div');
+                cell.className='grid-cell';
+                if(r===0 && c===this.startCol)         cell.classList.add('rc-start');
+                if(r===this.gridSize-1 && c===this.endCol) cell.classList.add('rc-end');
+                cell.innerHTML=this.svg(t.shapeIdx,t.rot);
+
+                if(!(r===0&&c===this.startCol) && !(r===this.gridSize-1&&c===this.endCol)){
+                cell.onclick=()=>{
+                    if(this.solved) return;
+                    t.rot=(t.rot+1)&3;
+                    cell.innerHTML=this.svg(t.shapeIdx,t.rot);
+                    this.trySolve();
+                };
+                }
+                g.appendChild(cell);
+            }
+            }
+        },
+        svg(s,rot){
+            const p=[
+            `<rect x="10" y="3"  width="4" height="18" rx="2"/>`,
+            `<rect x="3"  y="10" width="18" height="4" rx="2"/>`,
+            `<rect x="10" y="3"  width="4" height="10" rx="2"/>
+            <rect x="10" y="10" width="7" height="4" rx="2"/>`,
+            `<rect x="10" y="10" width="7" height="4" rx="2"/>
+            <rect x="10" y="10" width="4" height="10" rx="2"/>`,
+            `<rect x="10" y="10" width="4" height="10" rx="2"/>
+            <rect x="3"  y="10" width="7" height="4" rx="2"/>`,
+            `<rect x="3"  y="10" width="7" height="4" rx="2"/>
+            <rect x="10" y="3"  width="4" height="10" rx="2"/>`
+            ];
+            return `<svg width="24" height="24" viewBox="0 0 24 24">
+                    <defs><filter id="g"><feGaussianBlur stdDeviation="1.4" result="c"/>
+                    <feMerge><feMergeNode in="c"/><feMergeNode in="SourceGraphic"/>
+                    </feMerge></filter>
+                    <style><![CDATA[rect{fill:#00ff80;filter:url(#g);}]]></style></defs>
+                    <g transform="rotate(${rot*90} 12 12)">${p[s]}</g></svg>`;
+        },
+
+        /* ───────────── grid generation ───────────── */
+        buildGrid(){
+            /* pick distinct columns */
+            this.startCol=Math.floor(Math.random()*this.gridSize);
+            do{this.endCol=Math.floor(Math.random()*this.gridSize);}
+            while(this.endCol===this.startCol);
+
+            /* random filler */
+            this.grid=Array.from({length:this.gridSize},()=>(
+            Array.from({length:this.gridSize},()=>({
+                shapeIdx:Math.floor(Math.random()*this.SHAPES.length),
+                rot:Math.floor(Math.random()*4)
+            }))
+            ));
+
+            /* carve guaranteed path that drops into E from above */
+            const path=this.makePath();                // list of [r,c]
+
+            path.forEach(([r,c],i)=>{
+            if(i===0||i===path.length-1){
+                this.grid[r][c]={shapeIdx:0,rot:0};    // vertical for S & E
+            }else{
+                const [pr,pc]=path[i-1], [nr,nc]=path[i+1];
+                const inDir =this.dirIdx(pr,pc,r,c);
+                const outDir=this.dirIdx(r,c,nr,nc);
+                this.grid[r][c]=this.tileFor(inDir,outDir);
+            }
+            });
+
+            /* scramble everything once */
+            for(let r=0;r<this.gridSize;r++)
+            for(let c=0;c<this.gridSize;c++)
+                if(!(r===0&&c===this.startCol)&&!(r===this.gridSize-1&&c===this.endCol))
+                this.grid[r][c].rot=(this.grid[r][c].rot+Math.floor(Math.random()*4))&3;
+
+            /* ensure UNSOLVED by rotating one interior path tile until it breaks */
+            for(const [r,c] of this.shuffle(path.slice(1,-1))){
+            const t=this.grid[r][c], originalRot=t.rot;
+            for(let k=1;k<=3;k++){
+                t.rot=(originalRot+k)&3;
+                if(!this.isSolved()){return;}          // broken successfully
+            }
+            t.rot=originalRot;                       // restore & try another tile
+            }
+        },
+        /* build path: wander until row-1, move horiz. to endCol, then step down */
+        makePath(){
+            const p=[[0,this.startCol]];
+            let r=0,c=this.startCol;
+            while(r<this.gridSize-2){                  // leave room for final drop
+            const moves=[[1,0],[1,0]];               // bias down
+            if(c>0)                 moves.push([0,-1]);
+            if(c<this.gridSize-1)   moves.push([0,1]);
+            const [dr,dc]=moves[Math.floor(Math.random()*moves.length)];
+            r+=dr; c+=dc; p.push([r,c]);
+            }
+            while(c!==this.endCol){
+            c+=(c<this.endCol)?1:-1; p.push([r,c]);
+            }
+            p.push([r+1,c]);                           // final drop into E
+            return p;
+        },
+        tileFor(a,b){                                // 2-way tile opening a & b
+            for(let s=0;s<this.SHAPES.length;s++)
+            for(let rot=0;rot<4;rot++){
+                const d=this.rot(this.SHAPES[s],rot);
+                if(d[a]&&d[b]&&d.filter(Boolean).length===2)
+                return {shapeIdx:s,rot};
+            }
+            return {shapeIdx:0,rot:0};                 // fallback (never hit)
+        },
+
+        /* helpers */
+        shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;},
+        rot(bools,rot){const o=[0,0,0,0];for(let d=0;d<4;d++)o[(d+rot)&3]=bools[d];return o;},
+        dirIdx(r1,c1,r2,c2){ if(r2<r1) return 0; if(c2>c1) return 1; if(r2>r1) return 2; return 3; },
+
+        /* ───────────── solving logic ───────────── */
+        dirs(t){return this.rot(this.SHAPES[t.shapeIdx],t.rot);},
+        canEnter(r,c,from){ if(r<0||r>=this.gridSize||c<0||c>=this.gridSize) return false;
+                            return this.dirs(this.grid[r][c])[(from+2)&3]; },
+        dfs(r,c,v){
+            if(r===this.gridSize-1&&c===this.endCol) return true;
+            v[r][c]=true;
+            const d=this.dirs(this.grid[r][c]);
+            for(let i=0;i<4;i++)if(d[i]){
+            const nr=r+this.DIRS[i][0], nc=c+this.DIRS[i][1];
+            if(!this.canEnter(nr,nc,i)||v[nr]?.[nc]) continue;
+            if(this.dfs(nr,nc,v)) return true;
+            }
+            return false;
+        },
+        isSolved(){
+            if(!this.dirs(this.grid[0][this.startCol])[2]) return false;
+            const v=Array.from({length:this.gridSize},()=>Array(this.gridSize).fill(false));
+            return this.dfs(0,this.startCol,v);
+        },
+        trySolve(){
+            if(this.solved) return;
+            if(this.isSolved()){
+            this.solved=true;
+            const score=250+this.timeLeft*5;
+            this.callbacks.addToLog(`Root Circuit complete! +${score}`);
+            this.callbacks.onWin(score);
+            }
+        },
+
+        /* ───────────── fail ───────────── */
+        gameOver(reason){
+            if(this.solved) return;
+            this.callbacks.addToLog(`Root Circuit failed: ${reason}`);
+            this.callbacks.onLoss(reason);
+        }
+        };
+
+
 
         // --- Initialize Arcade ---
         window.onload = () => {
