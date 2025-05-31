@@ -1085,29 +1085,35 @@
                 }
             },
 
-            handleKey: (e) => { 
-                if (e.preventDefault) e.preventDefault();     // ← new guard
+            handleKey: (e) => {
+                /* 1. suppress native scrolling *only* if the real event
+                    object actually owns preventDefault()                */
+                if (e.preventDefault) e.preventDefault();
+
+                /* 2. ignore input once the timer has stopped              */
                 if (!MazeGame.timerId || MazeGame.timeLeft <= 0) return;
+
+                /* 3. translate key → movement vector                      */
                 let dr = 0, dc = 0;
-
                 switch (e.key) {
-                    case 'ArrowUp': dr = -1; break;
-                    case 'ArrowDown': dr = 1; break;
-                    case 'ArrowLeft': dc = -1; break;
-                    case 'ArrowRight': dc = 1; break;
-                    default: return;
+                    case 'ArrowUp':    dr = -1; break;
+                    case 'ArrowDown':  dr =  1; break;
+                    case 'ArrowLeft':  dc = -1; break;
+                    case 'ArrowRight': dc =  1; break;
+                    default: return;                  // anything else → bail out
                 }
-                e.preventDefault();
 
-                const { r: initialR, c: initialC } = MazeGame.player; // Player's position before this move
-                let slidedToR = initialR;
-                let slidedToC = initialC;
+                /* ------------------------------------------------------------------
+                SLIDE UNTIL WALL / DECISION-POINT
+                ------------------------------------------------------------------ */
+                const { r: initialR, c: initialC } = MazeGame.player;
+                let slidedToR = initialR, slidedToC = initialC;
 
                 while (true) {
                     const nextStepR = slidedToR + dr;
                     const nextStepC = slidedToC + dc;
 
-                    // ---- 1. grid edge ----
+                    // 1. grid edge
                     if (nextStepR < 0 || nextStepR >= MazeGame.mazeHeight ||
                         nextStepC < 0 || nextStepC >= MazeGame.mazeWidth) {
                         break;
@@ -1115,15 +1121,15 @@
 
                     const nextCell = MazeGame.maze[nextStepR][nextStepC];
 
-                    // ---- 2. barrier = wall only ----
+                    // 2. barrier (wall)
                     if (nextCell.isWall) break;
 
-                    // ---- 3. advance slide ----
+                    // 3. advance slide
                     slidedToR = nextStepR;
                     slidedToC = nextStepC;
                     const cellPlayerIsOn = nextCell;
 
-                    // ---- 4. key pickup ----
+                    // 4. key pickup
                     if (cellPlayerIsOn.isKey && !cellPlayerIsOn.keyCollected) {
                         cellPlayerIsOn.keyCollected = true;
                         MazeGame.keysCollected++;
@@ -1131,37 +1137,37 @@
                             `Collected key (${MazeGame.keysCollected}/${MazeGame.keysToCollect})`
                         );
                         if (MazeGame.keysCollected === MazeGame.keysToCollect) {
-                            MazeGame.finish.locked = false;   // purely visual now
+                            MazeGame.finish.locked = false;
                             MazeGame.callbacks.addToLog("All keys collected! Finish unlocked.");
                         }
                         MazeGame.updateInfo();
                     }
 
-                    // ---- 5. finish check ----
+                    // 5. finish check
                     if (cellPlayerIsOn.isFinish) {
                         if (MazeGame.keysCollected === MazeGame.keysToCollect) {
-                            MazeGame.player.r = slidedToR;
-                            MazeGame.player.c = slidedToC;
+                            MazeGame.player = { r: slidedToR, c: slidedToC };
                             MazeGame.gameWon();
-                            return;           // no further processing
+                            return;
                         }
-                        // Not enough keys yet → treat like normal path, keep sliding
+                        // not enough keys yet → keep sliding
                     }
 
-                    // ---- 6. decision-point stop ----
+                    // 6. stop at decision-point (but not the starting square)
                     if (cellPlayerIsOn.isDecisionPoint &&
                         (slidedToR !== initialR || slidedToC !== initialC)) {
                         break;
                     }
                 }
 
+                /* 7. commit the move & redraw                               */
+                MazeGame.player = { r: slidedToR, c: slidedToC };
 
-                MazeGame.player.r = slidedToR;
-                MazeGame.player.c = slidedToC;
-
-                if (MazeGame.player.r === MazeGame.finish.r && MazeGame.player.c === MazeGame.finish.c && !MazeGame.finish.locked) {
+                if (slidedToR === MazeGame.finish.r &&
+                    slidedToC === MazeGame.finish.c &&
+                    !MazeGame.finish.locked) {
                     MazeGame.gameWon();
-                } else { // Only render if game not won, as gameWon will trigger transition
+                } else {
                     MazeGame.renderMaze();
                 }
             },
@@ -1671,8 +1677,8 @@
 
                 // tilt first
                 if (isMobile){
-                    if (this.tiltGamma < -5)      vx = -this.playerSpeed-0.1;
-                    else if (this.tiltGamma > 5)  vx =  this.playerSpeed-0.1;
+                    if (this.tiltGamma < -5)      vx = -this.playerSpeed+0.05;
+                    else if (this.tiltGamma > 5)  vx =  this.playerSpeed-0.05;
                 }
 
                 // keyboard (if pressed) overrides tilt
