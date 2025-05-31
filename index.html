@@ -920,17 +920,20 @@
                 
                 if (isMobile){
                     let sx=0, sy=0;
-                    this.gridElement.addEventListener('touchstart', e=>{
+                    const Z = this.container;                 // bigger hit-box
+                    Z.addEventListener('touchstart', e=>{
                         const t=e.touches[0]; sx=t.clientX; sy=t.clientY;
+                        e.preventDefault();
                     }, tapOpts);
-                    this.gridElement.addEventListener('touchend', e=>{
+                    Z.addEventListener('touchend', e=>{
                         const t=e.changedTouches[0];
                         const dx=t.clientX-sx, dy=t.clientY-sy;
                         const absX=Math.abs(dx), absY=Math.abs(dy);
-                        if (absX<20 && absY<20) return;               // ignore tiny moves
-                        const key = absX>absY ? (dx>0?'ArrowRight':'ArrowLeft')
-                                            : (dy>0?'ArrowDown':'ArrowUp');
-                        this.handleKey({ key });                      // fake keyboard event
+                        if (absX<30 && absY<30) return;       // shrug tiny drags
+                        const key = absX>absY
+                            ? (dx>0?'ArrowRight':'ArrowLeft')
+                            : (dy>0?'ArrowDown':'ArrowUp');
+                        this.handleKey({ key });
                     }, tapOpts);
                 }
                                 
@@ -1192,13 +1195,15 @@
             gridElement: null,
 
             init(container, infoContainer, cycle, callbacks) {
-                this.container = container;
-                this.infoContainer = infoContainer;
-                this.cycle = cycle;
-                this.callbacks = callbacks;
+                /* ▼ basic wiring -------------------------------------------------- */
+                this.container       = container;
+                this.infoContainer   = infoContainer;
+                this.cycle           = cycle;
+                this.callbacks       = callbacks;
 
-                const cycleConfigIndex = Math.min(cycle - 1, this.config.gridSizes.length - 1);
-                const gridSize = this.config.gridSizes[cycleConfigIndex];
+                /* ▼ cycle-scaled params ------------------------------------------- */
+                const idx          = Math.min(cycle - 1, this.config.gridSizes.length - 1);
+                const gridSize     = this.config.gridSizes[idx];
 
                 this.gs = {
                     grid: [],
@@ -1210,28 +1215,36 @@
                     totalNonMineCells: 0,
                     gameOver: false,
                     firstClick: true,
-                    firstClickCell: { r: -1, c: -1 }, 
+                    firstClickCell: { r: -1, c: -1 }
                 };
-                
-                this.container.innerHTML = `<div id="sweeper-grid" class="grid-display"></div>`;
-                this.gridElement = document.getElementById('sweeper-grid');
-                this.gs.totalNonMineCells = (this.gs.rows * this.gs.cols) - this.gs.numMines; // Calculate early for display
-                this.updateInfo();
-                this.renderInitialGridShell(); 
 
-                this.flagMode = false;                               // ← new
+                /* ▼ shell --------------------------------------------------------- */
+                this.container.innerHTML =
+                    `<div id="sweeper-grid" class="grid-display"></div>`;
+                this.gridElement     = document.getElementById('sweeper-grid');
 
-                if (isMobile){
-                    const toggle = document.createElement('div');
-                    toggle.id = 'sweeper-mobile-controls';
-                    toggle.innerHTML = `<label style="font-size:.85em;">
-                        <input type="checkbox" id="flag-toggle"> Flag Mode</label>`;
+                /* ▼ info panel stub + (mobile) toggle ----------------------------- */
+                this.infoContainer.innerHTML =
+                    `<div id="sweeper-info"></div>`;              // text only – toggle sits next to it
+
+                this.flagMode = false;                           // ← new flag mode
+                if (isMobile) {
+                    const toggle = document.createElement('label');
+                    toggle.style.fontSize = '.85em';
+                    toggle.innerHTML =
+                        `<input type="checkbox" id="flag-toggle"> Flag Mode`;
                     this.infoContainer.appendChild(toggle);
-                    toggle.querySelector('#flag-toggle').addEventListener('change', e=>{
-                        this.flagMode = e.target.checked;
-                    }, tapOpts);
+                    toggle.querySelector('#flag-toggle')
+                        .addEventListener('change', e => {
+                            this.flagMode = e.target.checked;
+                        }, tapOpts);
                 }
 
+                /* ▼ pre-compute & paint grid shell -------------------------------- */
+                this.gs.totalNonMineCells =
+                    (this.gs.rows * this.gs.cols) - this.gs.numMines;
+                this.updateInfo();
+                this.renderInitialGridShell();
             },
             
             renderInitialGridShell() { 
@@ -1267,8 +1280,13 @@
                  this.callbacks.addToLog("Grid Sweeper ended.");
             },
 
-            updateInfo() {
-                 this.infoContainer.innerHTML = `<div id="sweeper-info">Mines: ${this.gs.numMines} | Flags: ${this.gs.flagsPlaced} | Revealed: ${this.gs.cellsRevealed}/${this.gs.totalNonMineCells || (this.gs.rows*this.gs.cols - this.gs.numMines)}</div>`;
+            // replace SweeperGame.updateInfo() with:
+            updateInfo(){
+                const lbl = document.getElementById('sweeper-info');
+                if (!lbl) return;
+                lbl.textContent =
+                `Mines: ${this.gs.numMines} | Flags: ${this.gs.flagsPlaced} | `
+                + `Revealed: ${this.gs.cellsRevealed}/${this.gs.totalNonMineCells}`;
             },
 
             setupGridAndMines() { 
@@ -1648,15 +1666,20 @@
 
             updateGameObjects() {
 
-                if (isMobile){                // tilt-based
-                    if (this.tiltGamma < -5)      this.player.vx = -this.playerSpeed;
-                    else if (this.tiltGamma > 5)  this.player.vx =  this.playerSpeed;
-                    else                          this.player.vx = 0;
+                let vx = 0;
+
+                // tilt first
+                if (isMobile){
+                    if (this.tiltGamma < -5)      vx = -this.playerSpeed;
+                    else if (this.tiltGamma > 5)  vx =  this.playerSpeed;
                 }
 
-                if (this.keysPressed.left)  this.player.vx = -this.playerSpeed;
-                else if (this.keysPressed.right) this.player.vx =  this.playerSpeed;
-                else this.player.vx = 0;
+                // keyboard (if pressed) overrides tilt
+                if (this.keysPressed.left)       vx = -this.playerSpeed;
+                else if (this.keysPressed.right) vx =  this.playerSpeed;
+
+                this.player.vx = vx;
+
                 this.player.x += this.player.vx;
                 this.player.x = Math.max(0,
                     Math.min(this.config.screenWidthChars - this.player.width,
