@@ -241,6 +241,9 @@
             margin: 0;
             width: 100%;
             height: 100%;
+            -webkit-user-select: none;   /* Safari/Chrome */
+            -webkit-touch-callout: none; /* stops Google-Lens pop-up */
+            user-select: none;           /* everyone else  */
         }
          #galaga-info { margin-bottom: 10px; font-size: 0.9em; }
 
@@ -481,7 +484,7 @@
         /* ----------- mobile helpers ----------- */
         const isMobile = matchMedia('(pointer: coarse)').matches;     // true on phones/tablets
         const tapOpts  = { passive: true };                           // shorthand
-
+        const tapBlock = { passive: false };
 
         const ArcadeManager = {
             currentCycle: 1,
@@ -1600,8 +1603,10 @@
                     }
                     /* tap anywhere on frame to shoot */
                     this.container.addEventListener('touchstart', e=>{
-                        e.preventDefault(); this.spawnBullet();
-                    }, tapOpts);
+                        e.preventDefault();
+                        e.stopPropagation();   
+                        this.spawnBullet();
+                    }, tapBlock);
                 }
 
 
