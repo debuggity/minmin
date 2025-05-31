@@ -923,7 +923,6 @@
                     const Z = this.container;                 // bigger hit-box
                     Z.addEventListener('touchstart', e=>{
                         const t=e.touches[0]; sx=t.clientX; sy=t.clientY;
-                        e.preventDefault();
                     }, tapOpts);
                     Z.addEventListener('touchend', e=>{
                         const t=e.changedTouches[0];
@@ -1087,8 +1086,10 @@
             },
 
             handleKey: (e) => { 
-                if (!MazeGame.timerId || MazeGame.timeLeft <=0) return; 
+                if (e.preventDefault) e.preventDefault();     // ← new guard
+                if (!MazeGame.timerId || MazeGame.timeLeft <= 0) return;
                 let dr = 0, dc = 0;
+
                 switch (e.key) {
                     case 'ArrowUp': dr = -1; break;
                     case 'ArrowDown': dr = 1; break;
@@ -1670,8 +1671,8 @@
 
                 // tilt first
                 if (isMobile){
-                    if (this.tiltGamma < -5)      vx = -this.playerSpeed;
-                    else if (this.tiltGamma > 5)  vx =  this.playerSpeed;
+                    if (this.tiltGamma < -5)      vx = -this.playerSpeed-0.1;
+                    else if (this.tiltGamma > 5)  vx =  this.playerSpeed-0.1;
                 }
 
                 // keyboard (if pressed) overrides tilt
