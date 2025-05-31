@@ -1602,11 +1602,12 @@
                         window.addEventListener('deviceorientation', orientCb);
                     }
                     /* tap anywhere on frame to shoot */
-                    this.container.addEventListener('touchstart', e=>{
+                    this.touchShootHandler = e => {
                         e.preventDefault();
                         e.stopPropagation();   
                         this.spawnBullet();
-                    }, tapBlock);
+                    };
+                    this.container.addEventListener('touchstart', this.touchShootHandler, tapBlock);
                 }
 
 
@@ -1638,7 +1639,14 @@
 
                 document.removeEventListener('keydown', this.handleKeyDown);
                 document.removeEventListener('keyup',   this.handleKeyUp);
+                
+                if (this.touchShootHandler) {
+                    this.container.removeEventListener('touchstart', this.touchShootHandler, tapBlock);
+                    this.touchShootHandler = null;
+                }
+
                 this.callbacks.addToLog("Astro Garden ended.");
+
             },
             
             gameLoop: () => { 
