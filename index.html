@@ -920,33 +920,48 @@
             start() {
                 this.callbacks.addToLog("Maze Runner started. Use arrow keys to move.");
                 document.addEventListener('keydown', this.handleKey);
-                
-                if (isMobile){
-                    let sx=0, sy=0;
-                    const Z = this.container;                 // bigger hit-box
-                    Z.addEventListener('touchstart', e=>{
-                        const t=e.touches[0]; sx=t.clientX; sy=t.clientY;
-                    }, tapOpts);
-                    Z.addEventListener('touchend', e=>{
-                        const t=e.changedTouches[0];
-                        const dx=t.clientX-sx, dy=t.clientY-sy;
-                        const absX=Math.abs(dx), absY=Math.abs(dy);
-                        if (absX<30 && absY<30) return;       // shrug tiny drags
-                        const key = absX>absY
-                            ? (dx>0?'ArrowRight':'ArrowLeft')
-                            : (dy>0?'ArrowDown':'ArrowUp');
-                        this.handleKey({ key });
-                    }, tapOpts);
+
+                if (isMobile) {
+                    const Z = this.container;
+                    let sx = 0, sy = 0;
+
+                    // Prevent default behavior on touchstart and record starting coordinates
+                    Z.addEventListener('touchstart', e => {
+                        e.preventDefault();
+                        const t = e.touches[0];
+                        sx = t.clientX;
+                        sy = t.clientY;
+                    }, { passive: false });
+
+                    // On touchend, compute swipe direction and dispatch a real KeyboardEvent
+                    Z.addEventListener('touchend', e => {
+                        e.preventDefault();
+                        const t = e.changedTouches[0];
+                        const dx = t.clientX - sx;
+                        const dy = t.clientY - sy;
+                        if (Math.abs(dx) < 30 && Math.abs(dy) < 30) return; // ignore small drags
+
+                        const key = Math.abs(dx) > Math.abs(dy)
+                            ? (dx > 0 ? 'ArrowRight' : 'ArrowLeft')
+                            : (dy > 0 ? 'ArrowDown'  : 'ArrowUp');
+
+                        const evt = new KeyboardEvent('keydown', { key, bubbles: false, cancelable: true });
+                        MazeGame.handleKey(evt);
+                    }, { passive: false });
+
+                    // Block scrolling while playing
+                    Z.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
                 }
-                                
+
                 this.timerId = setInterval(() => {
-                    if (this.timeLeft <= 0) return; // Prevent timer from going negative if game ends before interval fires
+                    if (this.timeLeft <= 0) return;
                     this.timeLeft--;
                     this.updateInfo();
                     if (this.timeLeft <= 0) {
                         this.gameOver("Time ran out!");
                     }
                 }, 1000);
+
                 this.renderMaze();
             },
 
@@ -1105,12 +1120,11 @@
                 return (paths >= 3) || (vertical && horizontal);
             },
 
-            /* ── FULL replacement for MazeGame.handleKey ──────────────────────── */
+            /* ── FULL replacement for MazeGame.handleKey ─────────────────────── */
             handleKey: (e) => {
                 if (e.preventDefault) e.preventDefault();
                 if (!MazeGame.timerId || MazeGame.timeLeft <= 0) return;
 
-                /* translate key → vector */
                 let dr = 0, dc = 0;
                 switch (e.key) {
                     case 'ArrowUp':    dr = -1; break;
@@ -1123,20 +1137,17 @@
                 const { r: startR, c: startC } = MazeGame.player;
                 let r = startR, c = startC;
 
-                /* slide until wall OR run-time junction -------------------------------- */
+                /* slide until wall **or a pre-tagged decision point** */
                 while (true) {
                     const nr = r + dr, nc = c + dc;
 
-                    /* stop at edge or wall */
                     if (nr < 0 || nr >= MazeGame.mazeHeight ||
                         nc < 0 || nc >= MazeGame.mazeWidth ||
                         MazeGame.maze[nr][nc].isWall) break;
 
-                    /* advance */
                     r = nr; c = nc;
                     const cell = MazeGame.maze[r][c];
 
-                    /* key pick-up */
                     if (cell.isKey && !cell.keyCollected) {
                         cell.keyCollected = true;
                         MazeGame.keysCollected++;
@@ -1150,28 +1161,22 @@
                         MazeGame.updateInfo();
                     }
 
-                    /* finish? */
-                    if (cell.isFinish) {
-                        if (!MazeGame.finish.locked) {
-                            MazeGame.player = { r, c };
-                            MazeGame.gameWon();
-                            return;
-                        }
+                    if (cell.isFinish && !MazeGame.finish.locked) {
+                        MazeGame.player = { r, c };
+                        MazeGame.gameWon();
+                        return;
                     }
 
-                    /* run-time decision check (ignore the tile we started on) */
-                    if ((r !== startR || c !== startC) && MazeGame.runtimeDecision(r, c))
-                        break;
+                    /* stop on any 3-way or 4-way junction (tagged earlier) */
+                    if ((r !== startR || c !== startC) && cell.isDecisionPoint) break;
                 }
 
-                /* commit move & redraw */
                 MazeGame.player = { r, c };
                 if (r === MazeGame.finish.r && c === MazeGame.finish.c && !MazeGame.finish.locked)
                     MazeGame.gameWon();
                 else
                     MazeGame.renderMaze();
             },
-
 
             gameWon() {
                 if (!this.timerId) return; // Already ended
