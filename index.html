@@ -971,88 +971,94 @@
             },
 
             generateMaze() {
-                let numberMaze = Array(this.mazeHeight).fill(null).map(() => Array(this.mazeWidth).fill(1)); // 1 for wall
+                // 1 build a wall matrix (1 = wall, 0 = path) with recursive back-tracker
+                const numberMaze = Array(this.mazeHeight).fill(null)
+                    .map(() => Array(this.mazeWidth).fill(1));
 
-                function carve(r, c, mazeToCarve, height, width) {
-                    mazeToCarve[r][c] = 0; // 0 for path
-                    const directions = [[0, 2], [2, 0], [0, -2], [-2, 0]];
-                    directions.sort(() => Math.random() - 0.5); 
-
-                    for (let [dr, dc] of directions) {
-                        const nr = r + dr, nc = c + dc;
-                        const wallR = r + dr / 2, wallC = c + dc / 2;
-                        if (nr > 0 && nr < height - 1 && nc > 0 && nc < width - 1 && mazeToCarve[nr][nc] === 1) {
-                            mazeToCarve[wallR][wallC] = 0;
-                            carve(nr, nc, mazeToCarve, height, width);
+                const carve = (r, c) => {
+                    numberMaze[r][c] = 0;
+                    const dirs = [[0, 2], [2, 0], [0, -2], [-2, 0]].sort(() => Math.random() - 0.5);
+                    for (const [dr, dc] of dirs) {
+                        const nr = r + dr, nc = c + dc, wr = r + dr / 2, wc = c + dc / 2;
+                        if (nr > 0 && nr < this.mazeHeight - 1 && nc > 0 && nc < this.mazeWidth - 1
+                            && numberMaze[nr][nc] === 1) {
+                            numberMaze[wr][wc] = 0;
+                            carve(nr, nc);
                         }
                     }
-                }
-                carve(1, 1, numberMaze, this.mazeHeight, this.mazeWidth);
+                };
+                carve(1, 1);
 
-                // Convert number maze to object maze and identify decision points
-                this.maze = Array(this.mazeHeight).fill(null).map(() => Array(this.mazeWidth).fill(null));
+                // 2 convert to object grid + mark decision points
+                this.maze = Array(this.mazeHeight).fill(null)
+                    .map(() => Array(this.mazeWidth).fill(null));
+
+                const DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // U, D, L, R
+
                 for (let r = 0; r < this.mazeHeight; r++) {
                     for (let c = 0; c < this.mazeWidth; c++) {
-                        const isWallCell = numberMaze[r][c] === 1;
-                        this.maze[r][c] = {
-                            isWall: isWallCell,
+                        const isWall = numberMaze[r][c] === 1;
+
+                        const cell = this.maze[r][c] = {
+                            isWall,
                             isKey: false,
                             isFinish: false,
                             isDecisionPoint: false,
                             keyCollected: false
                         };
 
-                        if (!isWallCell) { // If it's a path, check if it's a decision point
-                            let pathNeighbors = 0;
-                            const DIRS = [[-1,0], [1,0], [0,-1], [0,1]];
-                            for (const [dr, dc] of DIRS) {
-                                const nr_check = r + dr;
-                                const nc_check = c + dc;
-                                if (nr_check >= 0 && nr_check < this.mazeHeight && nc_check >= 0 && nc_check < this.mazeWidth && numberMaze[nr_check][nc_check] === 0) {
-                                    pathNeighbors++;
-                                }
+                        if (isWall) continue;
+
+                        // ── neighbour scan ──
+                        const open = [false, false, false, false];
+                        let paths = 0;
+                        DIRS.forEach(([dr, dc], idx) => {
+                            const nr = r + dr, nc = c + dc;
+                            if (nr >= 0 && nr < this.mazeHeight &&
+                                nc >= 0 && nc < this.mazeWidth &&
+                                numberMaze[nr][nc] === 0) {
+                                open[idx] = true;
+                                paths++;
                             }
-                            if (pathNeighbors >= 3) { // T-junction or crossroad
-                                this.maze[r][c].isDecisionPoint = true;
-                            }
+                        });
+
+                        /* decision-point test:
+                        ⋆ 3+ exits  → always junction
+                        ⋆ 2 exits   → mark **only** if at least one vertical AND one horizontal exit   */
+                        const perpendicular = (open[0] || open[1]) && (open[2] || open[3]);
+                        if (paths >= 3 || (paths === 2 && perpendicular)) {
+                            cell.isDecisionPoint = true;
                         }
                     }
-                }
-                
-                this.player = { r: 1, c: 1 };
-                if (this.maze[1][1].isWall) { 
-                    this.callbacks.addToLog("Error: Player start is wall. Fixing.");
-                    this.maze[1][1].isWall = false;
-                    // Ensure it's not a decision point if it was fixed to path
-                    if (this.maze[1][1].isDecisionPoint) this.maze[1][1].isDecisionPoint = false; 
                 }
 
-                // Place keys
+                // 3 player start guarantees path
+                this.player = { r: 1, c: 1 };
+                if (this.maze[1][1].isWall) this.maze[1][1].isWall = false;
+                this.maze[1][1].isDecisionPoint = false; // never stop on the spawn tile
+
+                // 4 place keys
                 for (let i = 0; i < this.keysToCollect; i++) {
                     let kr, kc;
-                    let attempts = 0;
                     do {
-                        kr = Math.floor(Math.random() * (this.mazeHeight - 2)) + 1; // Ensure within pathable area
-                        kc = Math.floor(Math.random() * (this.mazeWidth - 2)) + 1;
-                        attempts++;
-                        if (attempts > this.mazeHeight * this.mazeWidth * 2) { 
-                            this.callbacks.addToLog("Warning: Could not place all keys despite attempts."); break;
-                        }
-                    } while (this.maze[kr][kc].isWall || this.maze[kr][kc].isKey || this.maze[kr][kc].isFinish || (kr === this.player.r && kc === this.player.c));
-                    if (!this.maze[kr][kc].isWall) this.maze[kr][kc].isKey = true; else if(attempts <= this.mazeHeight * this.mazeWidth *2) i--; // Try placing this key again
+                        kr = 1 + Math.floor(Math.random() * (this.mazeHeight - 2));
+                        kc = 1 + Math.floor(Math.random() * (this.mazeWidth  - 2));
+                    } while (this.maze[kr][kc].isWall || this.maze[kr][kc].isKey ||
+                            (kr === this.player.r && kc === this.player.c));
+                    this.maze[kr][kc].isKey = true;
                 }
-                
-                // Place finish
-                let finish_attempts = 0;
+
+                // 5 place finish
                 do {
-                    this.finish.r = Math.floor(Math.random() * (this.mazeHeight - 2)) + 1;
-                    this.finish.c = Math.floor(Math.random() * (this.mazeWidth - 2)) + 1;
-                    finish_attempts++;
-                    if (finish_attempts > this.mazeHeight * this.mazeWidth * 2) { 
-                        this.callbacks.addToLog("Warning: Could not place finish despite attempts."); break;
-                    }
-                } while (this.maze[this.finish.r][this.finish.c].isWall || this.maze[this.finish.r][this.finish.c].isKey || this.maze[this.finish.r][this.finish.c].isFinish || (this.finish.r === this.player.r && this.finish.c === this.player.c));
-                if(!this.maze[this.finish.r][this.finish.c].isWall) this.maze[this.finish.r][this.finish.c].isFinish = true;
+                    this.finish = {
+                        r: 1 + Math.floor(Math.random() * (this.mazeHeight - 2)),
+                        c: 1 + Math.floor(Math.random() * (this.mazeWidth  - 2)),
+                        locked: true
+                    };
+                } while (this.maze[this.finish.r][this.finish.c].isWall ||
+                        this.maze[this.finish.r][this.finish.c].isKey ||
+                        (this.finish.r === this.player.r && this.finish.c === this.player.c));
+                this.maze[this.finish.r][this.finish.c].isFinish = true;
             },
 
             renderMaze() {
