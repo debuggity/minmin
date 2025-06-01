@@ -966,19 +966,24 @@
             },
 
             end() {
-                /* halt timers / listeners exactly as before */
                 clearInterval(this.timerId);
                 this.timerId = null;
 
-                /* remove any keys / events this module added */
-                document.removeEventListener('keydown', this.handleKey);
-                document.removeEventListener('keyup',   this.handleKey);   // Galaga needs this
+                document.removeEventListener("keydown", this.handleKey);
 
-                /* log only if callbacks are wired */
-                if (this.callbacks && this.callbacks.addToLog) {
-                    this.callbacks.addToLog(`${this.name || 'Game'} ended.`);
+                if (isMobile) {
+                    const Z = this.container;
+                    Z.removeEventListener("touchstart", this._touchStartHandler);
+                    Z.removeEventListener("touchend",   this._touchEndHandler);
+                    Z.removeEventListener("touchmove",  this._touchMoveHandler);
+                    this._touchStartHandler = null;
+                    this._touchEndHandler = null;
+                    this._touchMoveHandler = null;
                 }
-                this.callbacks = null;   // mark inactive for safety
+
+                document.removeEventListener("keyup", this.handleKey); // Galaga cleanup
+                this.callbacks?.addToLog(`${this.name || "Game"} ended.`);
+                this.callbacks = null;
             },
             
             updateInfo() {
