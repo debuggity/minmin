@@ -550,16 +550,14 @@
                 this.dom.overlayActionBtn.style.display = 'none'; // Shown after typing
 
                 const bootMsg = `> BOOTING grdn_OS v3.1…
-> Initializing Multi-Path Environment... [OK]
-> Calibrating Cycle Progression Matrix... [OK]
 > Loading Game Modules:
 >  - MAZE_RUNNER.MOD (v1.1)..... [LOADED]
 >  - GRID_SWEEPER.MOD .......... [LOADED]
 >  - ASTRO_GARDEN.MOD .......... [LOADED]
 >  - ROOT_CIRCUIT.MOD .......... [LOADED]
 > WELCOME, OPERATIVE.
-> OBJECTIVE: Resolve 5 cycle anomalies of increasing complexity.
-> Each cycle in grdn_OS contains 3 paths to resolve.
+> OBJECTIVE: Complete 5 cycles of increasing complexity.
+> Each cycle in grdn_OS contains 3 forking paths.
 >
 > Press 'INITIATE SEQUENCE' to begin.`;
                 
@@ -1932,152 +1930,79 @@
                         <g transform="rotate(${rot*90} 12 12)">${p[s]}</g></svg>`;
             },
 
-            /* ───────────── grid generation ───────────── */
-            buildGrid(){
+            /* ───────────── grid generation  (guaranteed-solvable scramble) ───────────── */
+            buildGrid () {
+                /* ── pick board size, start/end columns ── */
                 this.startCol = Math.floor(Math.random() * this.gridSize);
                 do { this.endCol = Math.floor(Math.random() * this.gridSize); }
                 while (this.endCol === this.startCol && this.gridSize > 1);
 
-                this.grid = Array.from({ length: this.gridSize }, () =>
-                    Array.from({ length: this.gridSize }, () => ({}))
+                /* --- initialise empty grid objects --- */
+                this.grid = Array.from({length: this.gridSize}, () =>
+                    Array.from({length: this.gridSize}, () => ({}))
                 );
 
-                // 1. Generate the primary solution path coordinates
-                const pathCoordsList = this.makePath(); // User's original makePath
-                if (!pathCoordsList || pathCoordsList.length < 2) {
-                    console.error("RootCircuit: makePath failed to produce a valid path. Defaulting to random fill.");
-                    // Fallback to completely random grid if path generation fails
-                    for(let r_fill=0; r_fill<this.gridSize; r_fill++) for(let c_fill=0; c_fill<this.gridSize; c_fill++) {
-                        this.grid[r_fill][c_fill] = {
-                            shapeIdx: Math.floor(Math.random() * this.SHAPES.length),
-                            rot: Math.floor(Math.random() * 4)
-                        };
-                    }
-                    // Ensure start/end are still somewhat distinct if possible
-                    this.grid[0][this.startCol] = {shapeIdx: 0, rot: 0};
-                    this.grid[this.gridSize-1][this.endCol] = {shapeIdx: 0, rot: 0};
-                    return; // Exit, as we can't guarantee solvability or unsolved state
+                /* ── STEP 1: build a *solved* path from S→E exactly as before ── */
+                const path = this.makePath();                        // ← uses existing helper
+                if (!path || path.length < 2) {
+                    console.error("RootCircuit: makePath() failed.");
+                    return;
                 }
 
+                /* ▸ lay correct tiles along that path and remember the *solved* rotation */
+                const markSolved = (r, c, shapeIdx, rot) => {
+                    this.grid[r][c] = { shapeIdx, rot, rotSolved: rot };
+                };
 
-                // 2. Place SOLVING tiles along this path
-                const pathCellKeys = new Set(); // For quick lookup: "r,c"
-                pathCoordsList.forEach(([r,c]) => pathCellKeys.add(`${r},${c}`));
+                for (let i = 0; i < path.length; i++) {
+                    const [r, c] = path[i];
 
-                for (let i = 0; i < pathCoordsList.length; i++) {
-                    const [r, c] = pathCoordsList[i];
-                    let tileConfig;
-                    if (i === 0) { // Start tile
-                        tileConfig = { shapeIdx: 0, rot: 0, onDesignPath: true };
-                    } else if (i === pathCoordsList.length - 1) { // End tile
-                        tileConfig = { shapeIdx: 0, rot: 0, onDesignPath: true };
-                    } else { // Interior path tile
-                        const [prevR, prevC] = pathCoordsList[i - 1];
-                        const [nextR, nextC] = pathCoordsList[i + 1];
-                        // Ensure prev and next are valid before calculating directions
-                        if (prevR === undefined || nextR === undefined) { // Should not happen if path is valid
-                            console.error("RootCircuit: Invalid path segment", pathCoordsList, i);
-                            tileConfig = {shapeIdx:0, rot:0, onDesignPath: true}; // Fallback
-                        } else {
-                            const inDir = this.dirIdx(prevR, prevC, r, c);
-                            const outDir = this.dirIdx(r, c, nextR, nextC);
-                            tileConfig = this.tileFor(inDir, outDir);
-                            tileConfig.onDesignPath = true;
-                        }
+                    if (i === 0 || i === path.length - 1) {           /* Start / End = I-vertical */
+                        markSolved(r, c, 0, 0);
+                        continue;
                     }
-                    this.grid[r][c] = tileConfig;
+
+                    const [pr, pc] = path[i - 1];
+                    const [nr, nc] = path[i + 1];
+                    const inDir  = this.dirIdx(pr, pc, r, c);
+                    const outDir = this.dirIdx(r, c, nr, nc);
+                    const { shapeIdx, rot } = this.tileFor(inDir, outDir);
+                    markSolved(r, c, shapeIdx, rot);
                 }
 
-                // 3. Fill non-path cells with random tiles
-                for (let r_fill = 0; r_fill < this.gridSize; r_fill++) {
-                    for (let c_fill = 0; c_fill < this.gridSize; c_fill++) {
-                        if (!pathCellKeys.has(`${r_fill},${c_fill}`)) {
-                            this.grid[r_fill][c_fill] = {
-                                shapeIdx: Math.floor(Math.random() * this.SHAPES.length),
-                                rot: Math.floor(Math.random() * 4),
-                                onDesignPath: false
+                /* ▸ fill every *non-path* cell with a random tile (any orientation) */
+                for (let r = 0; r < this.gridSize; r++) {
+                    for (let c = 0; c < this.gridSize; c++) {
+                        if (this.grid[r][c].rotSolved === undefined) {      // not on solution path
+                            this.grid[r][c] = {
+                                shapeIdx  : Math.floor(Math.random() * this.SHAPES.length),
+                                rotSolved : 0,                               // unused here
+                                rot       : Math.floor(Math.random() * 4)
                             };
                         }
                     }
                 }
-                // At this point, the board IS SOLVED via pathCoordsList. Start/End are vertical.
 
-                // 4. Attempt to break the DESIGN path to make the board UNSOLVED
-                const interiorPathCoords = pathCoordsList.slice(1, -1);
-                this.shuffle(interiorPathCoords); // Try breaking in random order
+                /* ── STEP 2: SCRAMBLE the board but keep it solvable ──────────
+                For every rotatable tile (anything except the fixed start/end),
+                rotate it by +90 / 180 / 270° from its solved orientation.      */
+                const scramble = () => {
+                    for (let r = 0; r < this.gridSize; r++) {
+                        for (let c = 0; c < this.gridSize; c++) {
+                            const isStart = r === 0 && c === this.startCol;
+                            const isEnd   = r === this.gridSize - 1 && c === this.endCol;
+                            if (isStart || isEnd) continue;                 // leave fixed
 
-                let brokeDesignPathSuccessfully = false;
-                for (const [r_break, c_break] of interiorPathCoords) {
-                    const tileToModify = this.grid[r_break][c_break];
-                    const originalSolvingRotation = tileToModify.rot;
-
-                    const rotationOffsets = this.shuffle([1, 2, 3]); // Try +90, +180, +270 deg
-                    for (const offset of rotationOffsets) {
-                        tileToModify.rot = (originalSolvingRotation + offset) & 3;
-                        if (!this.isSolved()) { // Check if the ENTIRE board is now unsolvable
-                            brokeDesignPathSuccessfully = true;
-                            break; // Found a rotation that makes it unsolved
+                            const tile = this.grid[r][c];
+                            const offset = 1 + Math.floor(Math.random() * 3); // 1-3
+                            tile.rot = (tile.rotSolved + offset) & 3;
                         }
                     }
-                    if (brokeDesignPathSuccessfully) break; // Move to next phase
-                    
-                    // If all rotations for this tile still resulted in a solved board, restore its original solving rotation.
-                    tileToModify.rot = originalSolvingRotation;
-                }
+                };
 
-                // 5. If still solved, an alternative path likely exists. Aggressively break ANY path.
-                if (this.isSolved()) {
-                    // console.warn(`RootCircuit (Cycle ${this.cycle}, Size ${this.gridSize}): Board still solved after trying to break design path. Aggressively breaking any path.`);
-                    const allModifiableCells = [];
-                    for (let r_mod = 0; r_mod < this.gridSize; r_mod++) {
-                        for (let c_mod = 0; c_mod < this.gridSize; c_mod++) {
-                            const isStart = r_mod === 0 && c_mod === this.startCol;
-                            const isEnd = r_mod === this.gridSize - 1 && c_mod === this.endCol;
-                            if (!isStart && !isEnd) {
-                                allModifiableCells.push([r_mod, c_mod]);
-                            }
-                        }
-                    }
-                    this.shuffle(allModifiableCells);
-
-                    let aggressivelyBroke = false;
-                    for (const [r_force, c_force] of allModifiableCells) {
-                        const tileToForce = this.grid[r_force][c_force];
-                        const initialRot = tileToForce.rot;
-                        const rotationOffsets = this.shuffle([1, 2, 3]);
-                        for (const offset of rotationOffsets) {
-                            tileToForce.rot = (initialRot + offset) & 3;
-                            if (!this.isSolved()) {
-                                aggressivelyBroke = true;
-                                break; 
-                            }
-                        }
-                        if (aggressivelyBroke) break;
-                        tileToForce.rot = initialRot; // Restore if this tile didn't work
-                    }
-                    
-                    // 6. Final contingency: If still solved (e.g. extremely small/trivial grid)
-                    if (this.isSolved()) {
-                        // console.error(`RootCircuit (Cycle ${this.cycle}, Size ${this.gridSize}): CRITICAL - COULD NOT MAKE BOARD UNSOLVED. Game might start solved.`);
-                        // For a very small grid (e.g., 2x1 S above E), it's inherently "solved" and unbreakable by rotation.
-                        // If there's at least one interior design path tile, force-rotate it.
-                        if (interiorPathCoords.length > 0) {
-                            const [r_desp, c_desp] = interiorPathCoords[0];
-                            // Ensure it's different from its design path solving rotation
-                            let finalRot = this.grid[r_desp][c_desp].rot;
-                            const designPathTile = this.tileFor(
-                                this.dirIdx(pathCoordsList[pathCoordsList.indexOf([r_desp,c_desp])-1][0], pathCoordsList[pathCoordsList.indexOf([r_desp,c_desp])-1][1], r_desp,c_desp),
-                                this.dirIdx(r_desp,c_desp, pathCoordsList[pathCoordsList.indexOf([r_desp,c_desp])+1][0], pathCoordsList[pathCoordsList.indexOf([r_desp,c_desp])+1][1])
-                            );
-                            if (this.grid[r_desp][c_desp].rot === designPathTile.rot) {
-                                this.grid[r_desp][c_desp].rot = (this.grid[r_desp][c_desp].rot + 1) & 3;
-                            }
-                        } else if (this.gridSize <= 2 && pathCoordsList.length <=2) {
-                            // Path is S-E directly or S next to E. Nothing to rotate.
-                            // It might be "solved" by default. This is an edge case for tiny grids.
-                        }
-                    }
-                }
+                /* Scramble once; if (rare) board is still solved, scramble again */
+                scramble();
+                if (this.isSolved()) scramble();
             },
             /* build path: wander until row-1, move horiz. to endCol, then step down */
             makePath(){ // User's original makePath function
