@@ -68,6 +68,11 @@
             justify-content: center;
             user-select: none;
             touch-action: none;
+            background-size: cover;
+            background-repeat: no-repeat;   /* no tiling                   */
+            background-position: center;    /* always centred              */
+            position: relative;              /* already set, but required */
+            overflow: hidden;                /* clips overlay corners     */
         }
 
         /* Common Grid Cell Styling (can be overridden by specific games) */
@@ -620,8 +625,16 @@
             },
 
             startCurrentGame() {
+                /* hide overlay and fetch the module first */
                 this.dom.overlay.style.display = 'none';
                 const gameModule = this.gameModules[this.currentGameIndex];
+
+                /* --- background image for this game × cycle --- */
+                const meta  = GameMeta[gameModule.name.replace(/\s+/g, '')];
+                const bgURL = meta?.bg?.(this.currentCycle) || '';
+                this.dom.gameSpecificArea.style.backgroundImage = bgURL ? `url("${bgURL}")` : 'none';
+
+                /* normal start-up */
                 this.dom.currentGameDisplay.textContent = gameModule.name;
                 this.log(`Starting Game: ${gameModule.name}, Cycle: ${this.currentCycle}`);
 
@@ -630,13 +643,10 @@
                     this.dom.gameSpecificInfoArea,
                     this.currentCycle,
                     {
-                        onWin: (scoreEarned) => this.handleGameWin(scoreEarned),
-                        onLoss: (reason) => this.handleGameLoss(reason),
-                        addToLog: (msg) => this.log(`[${gameModule.name}] ${msg}`),
-                        updateTotalScore: (points) => { 
-                           this.totalScore += points;
-                           this.updateGlobalUI();
-                        }
+                        onWin:  (score) => this.handleGameWin(score),
+                        onLoss: (why)  => this.handleGameLoss(why),
+                        addToLog:        (msg) => this.log(`[${gameModule.name}] ${msg}`),
+                        updateTotalScore:(pts) => { this.totalScore += pts; this.updateGlobalUI(); }
                     }
                 );
                 gameModule.start();
@@ -854,22 +864,26 @@
             MazeRunner : {
                 thumb : 'assets/maze.png',
                 shortHow: 'Slide with ↑↓←→ until you hit a wall or junction.\nGrab all keys, then reach the F.',
-                difficultyName(cycle){ return ['Sprout','Sapling','Stalk','Bloom','Elder'][cycle-1]; }
+                difficultyName(cycle){ return ['Sprout','Sapling','Stalk','Bloom','Elder'][cycle-1]; },
+                bg: c => `assets/bg/maze_${c}.png`
             },
             GridSweeper: {
                 thumb : 'assets/sweeper.png',
                 shortHow: 'Reveal safe tiles, flag mines (right-click).\nFirst click is always safe.',
-                difficultyName(cycle){ return ['Pebble','Stone','Boulder','Cliff','Mountain'][cycle-1]; }
+                difficultyName(cycle){ return ['Pebble','Stone','Boulder','Cliff','Mountain'][cycle-1]; },
+                bg: c => `assets/bg/sweeper_${c}.png`
             },
             AstroGarden: {
                 thumb : 'assets/astra.png',
                 shortHow: '←/→ to move, Space to shoot.\nHit score before timer ends.',
-                difficultyName(cycle){ return ['Orbit I','Orbit II','Orbit III','Nebula','Supernova'][cycle-1]; }
+                difficultyName(cycle){ return ['Orbit I','Orbit II','Orbit III','Nebula','Supernova'][cycle-1]; },
+                bg: c => `assets/bg/galaga_${c}.png`
             },
             RootCircuit: {
                 thumb: 'assets/root.png',
                 shortHow: 'Rotate tiles to connect a path from top to bottom.\nComplete before the circuit pulses!',
-                difficultyName(cycle) { return ['Boot', 'Flow', 'Pulse', 'Surge', 'Overload'][cycle-1]; }
+                difficultyName(cycle) { return ['Boot', 'Flow', 'Pulse', 'Surge', 'Overload'][cycle-1]; },
+                bg: c => `assets/bg/root_${c}.png`
             },
             /* ✧ add future modules here the same way */
         };
@@ -1187,7 +1201,7 @@
             gameWon() {
                 if (!this.timerId) return; // Already ended
                 this.callbacks.addToLog("Maze cleared!");
-                const score = this.timeLeft * 10; // Keys score added globally by ArcadeManager
+                const score = this.timeLeft * 25; // Keys score added globally by ArcadeManager
                 this.callbacks.onWin(score); 
             },
 
@@ -1818,216 +1832,446 @@
         };
 
         /* ──────────────────────────────────────────────────────────────
-        Root Circuit  v1.8 — always-solvable, never starts solved
+        Root Circuit  v2.0 — Enhanced Unsolved Start & Pathing Robustness
         ---------------------------------------------------------------- */
         const RootCircuitGame = {
-        name : "Root Circuit",
+            name : "Root Circuit",
 
-        /* injected by ArcadeManager */
-        container:null, infoContainer:null, cycle:1, callbacks:null,
+            /* injected by ArcadeManager */
+            container:null, infoContainer:null, cycle:1, callbacks:null,
 
-        /* runtime */
-        grid:[], gridSize:0, timeLeft:0, timerId:null, solved:false,
-        startCol:0, endCol:0,
+            /* runtime */
+            grid:[], gridSize:0, timeLeft:0, timerId:null, solved:false,
+            startCol:0, endCol:0,
 
-        /* constants */
-        config : {sizes:[6,7,9,11,13], times:[60,70,80,90,100]},
-        DIRS   : [[-1,0],[0,1],[1,0],[0,-1]],                  // U,R,D,L
-        SHAPES : [                                              // base rotations
-            [1,0,1,0], [0,1,0,1], [1,1,0,0],
-            [0,1,1,0], [0,0,1,1], [1,0,0,1]
-        ],
+            /* constants */
+            config : {sizes:[6,7,9,11,13], times:[60,70,80,90,100]},
+            DIRS   : [[-1,0],[0,1],[1,0],[0,-1]],                  // U,R,D,L (Indices: 0,1,2,3)
+            SHAPES : [                                              // base rotations (U,R,D,L openings)
+                [1,0,1,0], /* I vertical   (U,D) */
+                [0,1,0,1], /* I horizontal (R,L) */
+                [1,1,0,0], /* L North-East (U,R) */
+                [0,1,1,0], /* L East-South (R,D) */
+                [0,0,1,1], /* L South-West (D,L) */
+                [1,0,0,1]  /* L West-North (L,U) */
+            ],
 
-        /* ───────────────── life-cycle ───────────────── */
-        init(container,infoContainer,cycle,cb){
-            Object.assign(this,{container,infoContainer,cycle,callbacks:cb});
-            const idx=Math.min(cycle-1,this.config.sizes.length-1);
-            this.gridSize=this.config.sizes[idx];
-            this.timeLeft=this.config.times[idx];
-            this.solved=false;
-            this.buildGrid();
-            this.render();
-            this.updateInfo();
-        },
-        start(){
-            this.callbacks.addToLog(
-            "Root Circuit: rotate tiles to link  S  (green) to  E  (red)."
-            );
-            this.timerId=setInterval(()=>{
-            this.timeLeft--; this.updateInfo();
-            if(this.timeLeft<=0) this.gameOver("Signal surge – circuit overloaded!");
-            },1000);
-        },
-        end(){
-            clearInterval(this.timerId);
-            this.callbacks?.addToLog("Root Circuit ended.");
-        },
+            /* ───────────────── life-cycle ───────────────── */
+            init(container,infoContainer,cycle,cb){
+                Object.assign(this,{container,infoContainer,cycle,callbacks:cb});
+                const idx=Math.min(cycle-1,this.config.sizes.length-1);
+                this.gridSize=this.config.sizes[idx];
+                this.timeLeft=this.config.times[idx];
+                this.solved=false;
+                this.buildGrid();
+                this.render();
+                this.updateInfo();
+            },
+            start(){
+                this.callbacks.addToLog(
+                "Root Circuit: rotate tiles to link S (green) to E (red)."
+                );
+                this.timerId=setInterval(()=>{
+                if (this.solved) return;
+                this.timeLeft--; this.updateInfo();
+                if(this.timeLeft<=0) this.gameOver("Signal surge – circuit overloaded!");
+                },1000);
+            },
+            end(){
+                clearInterval(this.timerId);
+                this.timerId = null;
+                this.callbacks?.addToLog("Root Circuit ended.");
+            },
 
-        /* ───────────────── UI ───────────────── */
-        updateInfo(){
-            this.infoContainer.innerHTML=
-            `<div id="rootcircuit-info">⏱ ${this.timeLeft}s   Grid ${this.gridSize}×${this.gridSize}</div>`;
-        },
-        render(){
-            this.container.innerHTML='<div id="rootcircuit-grid" class="grid-display"></div>';
-            const g=document.getElementById('rootcircuit-grid');
-            g.style.gridTemplateColumns=`repeat(${this.gridSize},24px)`;
-            g.style.gridTemplateRows   =`repeat(${this.gridSize},24px)`;
+            /* ───────────────── UI ───────────────── */
+            updateInfo(){
+                this.infoContainer.innerHTML=
+                `<div id="rootcircuit-info">⏱ ${this.timeLeft}s   Grid ${this.gridSize}×${this.gridSize}</div>`;
+            },
+            render(){
+                this.container.innerHTML='<div id="rootcircuit-grid" class="grid-display"></div>';
+                const g=document.getElementById('rootcircuit-grid');
+                g.style.gridTemplateColumns=`repeat(${this.gridSize},24px)`;
+                g.style.gridTemplateRows   =`repeat(${this.gridSize},24px)`;
 
-            for(let r=0;r<this.gridSize;r++){
-            for(let c=0;c<this.gridSize;c++){
-                const t=this.grid[r][c], cell=document.createElement('div');
-                cell.className='grid-cell';
-                if(r===0 && c===this.startCol)         cell.classList.add('rc-start');
-                if(r===this.gridSize-1 && c===this.endCol) cell.classList.add('rc-end');
-                cell.innerHTML=this.svg(t.shapeIdx,t.rot);
-
-                if(!(r===0&&c===this.startCol) && !(r===this.gridSize-1&&c===this.endCol)){
-                cell.onclick=()=>{
-                    if(this.solved) return;
-                    t.rot=(t.rot+1)&3;
+                for(let r=0;r<this.gridSize;r++){
+                for(let c=0;c<this.gridSize;c++){
+                    const t=this.grid[r][c], cell=document.createElement('div');
+                    cell.className='grid-cell';
+                    if(r===0 && c===this.startCol)         cell.classList.add('rc-start');
+                    if(r===this.gridSize-1 && c===this.endCol) cell.classList.add('rc-end');
+                    
                     cell.innerHTML=this.svg(t.shapeIdx,t.rot);
-                    this.trySolve();
-                };
+
+                    if(!((r===0 && c===this.startCol) || (r===this.gridSize-1 && c===this.endCol))){
+                        cell.onclick=()=>{
+                            if(this.solved || this.timeLeft <= 0) return;
+                            t.rot=(t.rot+1)&3;
+                            cell.innerHTML=this.svg(t.shapeIdx,t.rot);
+                            this.trySolve();
+                        };
+                    }
+                    g.appendChild(cell);
                 }
-                g.appendChild(cell);
-            }
-            }
-        },
-        svg(s,rot){
-            const p=[
-            `<rect x="10" y="3"  width="4" height="18" rx="2"/>`,
-            `<rect x="3"  y="10" width="18" height="4" rx="2"/>`,
-            `<rect x="10" y="3"  width="4" height="10" rx="2"/>
-            <rect x="10" y="10" width="7" height="4" rx="2"/>`,
-            `<rect x="10" y="10" width="7" height="4" rx="2"/>
-            <rect x="10" y="10" width="4" height="10" rx="2"/>`,
-            `<rect x="10" y="10" width="4" height="10" rx="2"/>
-            <rect x="3"  y="10" width="7" height="4" rx="2"/>`,
-            `<rect x="3"  y="10" width="7" height="4" rx="2"/>
-            <rect x="10" y="3"  width="4" height="10" rx="2"/>`
-            ];
-            return `<svg width="24" height="24" viewBox="0 0 24 24">
-                    <defs><filter id="g"><feGaussianBlur stdDeviation="1.4" result="c"/>
-                    <feMerge><feMergeNode in="c"/><feMergeNode in="SourceGraphic"/>
-                    </feMerge></filter>
-                    <style><![CDATA[rect{fill:#00ff80;filter:url(#g);}]]></style></defs>
-                    <g transform="rotate(${rot*90} 12 12)">${p[s]}</g></svg>`;
-        },
+                }
+            },
+            svg(s,rot){
+                const p=[
+                `<rect x="10" y="3"  width="4" height="18" rx="2"/>`,
+                `<rect x="3"  y="10" width="18" height="4" rx="2"/>`,
+                `<rect x="10" y="3"  width="4" height="10" rx="2"/> <rect x="10" y="10" width="7" height="4" rx="2"/>`,
+                `<rect x="10" y="10" width="7" height="4" rx="2"/> <rect x="10" y="10" width="4" height="10" rx="2"/>`,
+                `<rect x="10" y="10" width="4" height="10" rx="2"/> <rect x="3"  y="10" width="7" height="4" rx="2"/>`,
+                `<rect x="3"  y="10" width="7" height="4" rx="2"/> <rect x="10" y="3"  width="4" height="10" rx="2"/>`
+                ];
+                return `<svg width="24" height="24" viewBox="0 0 24 24">
+                        <defs><filter id="g"><feGaussianBlur stdDeviation="1.4" result="c"/>
+                        <feMerge><feMergeNode in="c"/><feMergeNode in="SourceGraphic"/>
+                        </feMerge></filter>
+                        <style><![CDATA[rect{fill:#00ff80;filter:url(#g);}]]></style></defs>
+                        <g transform="rotate(${rot*90} 12 12)">${p[s]}</g></svg>`;
+            },
 
-        /* ───────────── grid generation ───────────── */
-        buildGrid(){
-            /* pick distinct columns */
-            this.startCol=Math.floor(Math.random()*this.gridSize);
-            do{this.endCol=Math.floor(Math.random()*this.gridSize);}
-            while(this.endCol===this.startCol);
+            /* ───────────── grid generation ───────────── */
+            buildGrid(){
+                this.startCol = Math.floor(Math.random() * this.gridSize);
+                do { this.endCol = Math.floor(Math.random() * this.gridSize); }
+                while (this.endCol === this.startCol && this.gridSize > 1);
 
-            /* random filler */
-            this.grid=Array.from({length:this.gridSize},()=>(
-            Array.from({length:this.gridSize},()=>({
-                shapeIdx:Math.floor(Math.random()*this.SHAPES.length),
-                rot:Math.floor(Math.random()*4)
-            }))
-            ));
+                this.grid = Array.from({ length: this.gridSize }, () =>
+                    Array.from({ length: this.gridSize }, () => ({}))
+                );
 
-            /* carve guaranteed path that drops into E from above */
-            const path=this.makePath();                // list of [r,c]
+                // 1. Generate the primary solution path coordinates
+                const pathCoordsList = this.makePath(); // User's original makePath
+                if (!pathCoordsList || pathCoordsList.length < 2) {
+                    console.error("RootCircuit: makePath failed to produce a valid path. Defaulting to random fill.");
+                    // Fallback to completely random grid if path generation fails
+                    for(let r_fill=0; r_fill<this.gridSize; r_fill++) for(let c_fill=0; c_fill<this.gridSize; c_fill++) {
+                        this.grid[r_fill][c_fill] = {
+                            shapeIdx: Math.floor(Math.random() * this.SHAPES.length),
+                            rot: Math.floor(Math.random() * 4)
+                        };
+                    }
+                    // Ensure start/end are still somewhat distinct if possible
+                    this.grid[0][this.startCol] = {shapeIdx: 0, rot: 0};
+                    this.grid[this.gridSize-1][this.endCol] = {shapeIdx: 0, rot: 0};
+                    return; // Exit, as we can't guarantee solvability or unsolved state
+                }
 
-            path.forEach(([r,c],i)=>{
-            if(i===0||i===path.length-1){
-                this.grid[r][c]={shapeIdx:0,rot:0};    // vertical for S & E
-            }else{
-                const [pr,pc]=path[i-1], [nr,nc]=path[i+1];
-                const inDir =this.dirIdx(pr,pc,r,c);
-                const outDir=this.dirIdx(r,c,nr,nc);
-                this.grid[r][c]=this.tileFor(inDir,outDir);
-            }
-            });
 
-            /* scramble everything once */
-            for(let r=0;r<this.gridSize;r++)
-            for(let c=0;c<this.gridSize;c++)
-                if(!(r===0&&c===this.startCol)&&!(r===this.gridSize-1&&c===this.endCol))
-                this.grid[r][c].rot=(this.grid[r][c].rot+Math.floor(Math.random()*4))&3;
+                // 2. Place SOLVING tiles along this path
+                const pathCellKeys = new Set(); // For quick lookup: "r,c"
+                pathCoordsList.forEach(([r,c]) => pathCellKeys.add(`${r},${c}`));
 
-            /* ensure UNSOLVED by rotating one interior path tile until it breaks */
-            for(const [r,c] of this.shuffle(path.slice(1,-1))){
-            const t=this.grid[r][c], originalRot=t.rot;
-            for(let k=1;k<=3;k++){
-                t.rot=(originalRot+k)&3;
-                if(!this.isSolved()){return;}          // broken successfully
-            }
-            t.rot=originalRot;                       // restore & try another tile
-            }
-        },
-        /* build path: wander until row-1, move horiz. to endCol, then step down */
-        makePath(){
-            const p=[[0,this.startCol]];
-            let r=0,c=this.startCol;
-            while(r<this.gridSize-2){                  // leave room for final drop
-            const moves=[[1,0],[1,0]];               // bias down
-            if(c>0)                 moves.push([0,-1]);
-            if(c<this.gridSize-1)   moves.push([0,1]);
-            const [dr,dc]=moves[Math.floor(Math.random()*moves.length)];
-            r+=dr; c+=dc; p.push([r,c]);
-            }
-            while(c!==this.endCol){
-            c+=(c<this.endCol)?1:-1; p.push([r,c]);
-            }
-            p.push([r+1,c]);                           // final drop into E
-            return p;
-        },
-        tileFor(a,b){                                // 2-way tile opening a & b
-            for(let s=0;s<this.SHAPES.length;s++)
-            for(let rot=0;rot<4;rot++){
-                const d=this.rot(this.SHAPES[s],rot);
-                if(d[a]&&d[b]&&d.filter(Boolean).length===2)
-                return {shapeIdx:s,rot};
-            }
-            return {shapeIdx:0,rot:0};                 // fallback (never hit)
-        },
+                for (let i = 0; i < pathCoordsList.length; i++) {
+                    const [r, c] = pathCoordsList[i];
+                    let tileConfig;
+                    if (i === 0) { // Start tile
+                        tileConfig = { shapeIdx: 0, rot: 0, onDesignPath: true };
+                    } else if (i === pathCoordsList.length - 1) { // End tile
+                        tileConfig = { shapeIdx: 0, rot: 0, onDesignPath: true };
+                    } else { // Interior path tile
+                        const [prevR, prevC] = pathCoordsList[i - 1];
+                        const [nextR, nextC] = pathCoordsList[i + 1];
+                        // Ensure prev and next are valid before calculating directions
+                        if (prevR === undefined || nextR === undefined) { // Should not happen if path is valid
+                            console.error("RootCircuit: Invalid path segment", pathCoordsList, i);
+                            tileConfig = {shapeIdx:0, rot:0, onDesignPath: true}; // Fallback
+                        } else {
+                            const inDir = this.dirIdx(prevR, prevC, r, c);
+                            const outDir = this.dirIdx(r, c, nextR, nextC);
+                            tileConfig = this.tileFor(inDir, outDir);
+                            tileConfig.onDesignPath = true;
+                        }
+                    }
+                    this.grid[r][c] = tileConfig;
+                }
 
-        /* helpers */
-        shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;},
-        rot(bools,rot){const o=[0,0,0,0];for(let d=0;d<4;d++)o[(d+rot)&3]=bools[d];return o;},
-        dirIdx(r1,c1,r2,c2){ if(r2<r1) return 0; if(c2>c1) return 1; if(r2>r1) return 2; return 3; },
+                // 3. Fill non-path cells with random tiles
+                for (let r_fill = 0; r_fill < this.gridSize; r_fill++) {
+                    for (let c_fill = 0; c_fill < this.gridSize; c_fill++) {
+                        if (!pathCellKeys.has(`${r_fill},${c_fill}`)) {
+                            this.grid[r_fill][c_fill] = {
+                                shapeIdx: Math.floor(Math.random() * this.SHAPES.length),
+                                rot: Math.floor(Math.random() * 4),
+                                onDesignPath: false
+                            };
+                        }
+                    }
+                }
+                // At this point, the board IS SOLVED via pathCoordsList. Start/End are vertical.
 
-        /* ───────────── solving logic ───────────── */
-        dirs(t){return this.rot(this.SHAPES[t.shapeIdx],t.rot);},
-        canEnter(r,c,from){ if(r<0||r>=this.gridSize||c<0||c>=this.gridSize) return false;
-                            return this.dirs(this.grid[r][c])[(from+2)&3]; },
-        dfs(r,c,v){
-            if(r===this.gridSize-1&&c===this.endCol) return true;
-            v[r][c]=true;
-            const d=this.dirs(this.grid[r][c]);
-            for(let i=0;i<4;i++)if(d[i]){
-            const nr=r+this.DIRS[i][0], nc=c+this.DIRS[i][1];
-            if(!this.canEnter(nr,nc,i)||v[nr]?.[nc]) continue;
-            if(this.dfs(nr,nc,v)) return true;
-            }
-            return false;
-        },
-        isSolved(){
-            if(!this.dirs(this.grid[0][this.startCol])[2]) return false;
-            const v=Array.from({length:this.gridSize},()=>Array(this.gridSize).fill(false));
-            return this.dfs(0,this.startCol,v);
-        },
-        trySolve(){
-            if(this.solved) return;
-            if(this.isSolved()){
-            this.solved=true;
-            const score=250+this.timeLeft*5;
-            this.callbacks.addToLog(`Root Circuit complete! +${score}`);
-            this.callbacks.onWin(score);
-            }
-        },
+                // 4. Attempt to break the DESIGN path to make the board UNSOLVED
+                const interiorPathCoords = pathCoordsList.slice(1, -1);
+                this.shuffle(interiorPathCoords); // Try breaking in random order
 
-        /* ───────────── fail ───────────── */
-        gameOver(reason){
-            if(this.solved) return;
-            this.callbacks.addToLog(`Root Circuit failed: ${reason}`);
-            this.callbacks.onLoss(reason);
-        }
+                let brokeDesignPathSuccessfully = false;
+                for (const [r_break, c_break] of interiorPathCoords) {
+                    const tileToModify = this.grid[r_break][c_break];
+                    const originalSolvingRotation = tileToModify.rot;
+
+                    const rotationOffsets = this.shuffle([1, 2, 3]); // Try +90, +180, +270 deg
+                    for (const offset of rotationOffsets) {
+                        tileToModify.rot = (originalSolvingRotation + offset) & 3;
+                        if (!this.isSolved()) { // Check if the ENTIRE board is now unsolvable
+                            brokeDesignPathSuccessfully = true;
+                            break; // Found a rotation that makes it unsolved
+                        }
+                    }
+                    if (brokeDesignPathSuccessfully) break; // Move to next phase
+                    
+                    // If all rotations for this tile still resulted in a solved board, restore its original solving rotation.
+                    tileToModify.rot = originalSolvingRotation;
+                }
+
+                // 5. If still solved, an alternative path likely exists. Aggressively break ANY path.
+                if (this.isSolved()) {
+                    // console.warn(`RootCircuit (Cycle ${this.cycle}, Size ${this.gridSize}): Board still solved after trying to break design path. Aggressively breaking any path.`);
+                    const allModifiableCells = [];
+                    for (let r_mod = 0; r_mod < this.gridSize; r_mod++) {
+                        for (let c_mod = 0; c_mod < this.gridSize; c_mod++) {
+                            const isStart = r_mod === 0 && c_mod === this.startCol;
+                            const isEnd = r_mod === this.gridSize - 1 && c_mod === this.endCol;
+                            if (!isStart && !isEnd) {
+                                allModifiableCells.push([r_mod, c_mod]);
+                            }
+                        }
+                    }
+                    this.shuffle(allModifiableCells);
+
+                    let aggressivelyBroke = false;
+                    for (const [r_force, c_force] of allModifiableCells) {
+                        const tileToForce = this.grid[r_force][c_force];
+                        const initialRot = tileToForce.rot;
+                        const rotationOffsets = this.shuffle([1, 2, 3]);
+                        for (const offset of rotationOffsets) {
+                            tileToForce.rot = (initialRot + offset) & 3;
+                            if (!this.isSolved()) {
+                                aggressivelyBroke = true;
+                                break; 
+                            }
+                        }
+                        if (aggressivelyBroke) break;
+                        tileToForce.rot = initialRot; // Restore if this tile didn't work
+                    }
+                    
+                    // 6. Final contingency: If still solved (e.g. extremely small/trivial grid)
+                    if (this.isSolved()) {
+                        // console.error(`RootCircuit (Cycle ${this.cycle}, Size ${this.gridSize}): CRITICAL - COULD NOT MAKE BOARD UNSOLVED. Game might start solved.`);
+                        // For a very small grid (e.g., 2x1 S above E), it's inherently "solved" and unbreakable by rotation.
+                        // If there's at least one interior design path tile, force-rotate it.
+                        if (interiorPathCoords.length > 0) {
+                            const [r_desp, c_desp] = interiorPathCoords[0];
+                            // Ensure it's different from its design path solving rotation
+                            let finalRot = this.grid[r_desp][c_desp].rot;
+                            const designPathTile = this.tileFor(
+                                this.dirIdx(pathCoordsList[pathCoordsList.indexOf([r_desp,c_desp])-1][0], pathCoordsList[pathCoordsList.indexOf([r_desp,c_desp])-1][1], r_desp,c_desp),
+                                this.dirIdx(r_desp,c_desp, pathCoordsList[pathCoordsList.indexOf([r_desp,c_desp])+1][0], pathCoordsList[pathCoordsList.indexOf([r_desp,c_desp])+1][1])
+                            );
+                            if (this.grid[r_desp][c_desp].rot === designPathTile.rot) {
+                                this.grid[r_desp][c_desp].rot = (this.grid[r_desp][c_desp].rot + 1) & 3;
+                            }
+                        } else if (this.gridSize <= 2 && pathCoordsList.length <=2) {
+                            // Path is S-E directly or S next to E. Nothing to rotate.
+                            // It might be "solved" by default. This is an edge case for tiny grids.
+                        }
+                    }
+                }
+            },
+            /* build path: wander until row-1, move horiz. to endCol, then step down */
+            makePath(){ // User's original makePath function
+                const p=[[0,this.startCol]];
+                let r=0,c=this.startCol;
+                
+                // Ensure r and c stay within bounds during path generation for stability
+                const max_r = this.gridSize - 1;
+                const max_c = this.gridSize - 1;
+
+                // Target row for horizontal alignment before final drop
+                const alignment_r = Math.max(0, this.gridSize - 2); 
+
+                while(r < alignment_r && p.length < this.gridSize * this.gridSize){ // Loop guard
+                    const moves=[[1,0],[1,0]]; // bias down
+                    if(c > 0) moves.push([0,-1]);
+                    if(c < max_c) moves.push([0,1]);
+                    
+                    const [dr,dc]=moves[Math.floor(Math.random()*moves.length)];
+                    
+                    let next_r = r + dr;
+                    let next_c = c + dc;
+
+                    // Clamp to bounds (though moves should mostly prevent this if logic is tight)
+                    next_r = Math.max(0, Math.min(max_r, next_r));
+                    next_c = Math.max(0, Math.min(max_c, next_c));
+
+                    // Avoid getting stuck if next move is same cell and path is short
+                    if (next_r === r && next_c === c && p.length < 3) {
+                        // If stuck early, try a different move if possible, or just break to next phase.
+                        // This might happen if gridSize is very small.
+                        // For now, allow it, rely on loop guard.
+                    }
+                    
+                    r = next_r;
+                    c = next_c;
+
+                    // Add if not forming an immediate 2-step loop back to previous (p[len-2])
+                    if (p.length < 2 || (r !== p[p.length-2][0] || c !== p[p.length-2][1])) {
+                        p.push([r,c]);
+                    } else {
+                        // Backtracked into previous-previous, try to unstick or accept shorter path part
+                        // For simplicity, we might just remove the last step that formed the loop
+                        // p.pop(); // remove p[len-1]
+                        // r = p[p.length-1][0]; c = p[p.length-1][1];
+                        // and try a different move (more complex logic) or let loop continue.
+                    }
+                }
+                // Ensure r is at alignment_r for horizontal movement phase
+                while (r < alignment_r && p.length < this.gridSize * this.gridSize) {
+                    r++; p.push([r,c]);
+                }
+                while (r > alignment_r && p.length < this.gridSize * this.gridSize) { // if overshot
+                    r--; p.push([r,c]);
+                }
+
+
+                while(c !== this.endCol && p.length < this.gridSize * this.gridSize){
+                    c+=(c < this.endCol) ? 1 : -1;
+                    // Clamp c if it somehow goes out of bounds
+                    c = Math.max(0, Math.min(max_c, c));
+                    p.push([r,c]);
+                }
+                
+                // Final drop to end row (gridSize - 1)
+                while(r < max_r && p.length < this.gridSize * this.gridSize){
+                    r++;
+                    p.push([r,c]);
+                }
+
+                // Sanitize: Remove consecutive duplicate points from path
+                const finalPath = [];
+                if (p.length > 0) {
+                    finalPath.push(p[0]);
+                    for(let i = 1; i < p.length; i++) {
+                        if (p[i][0] !== finalPath[finalPath.length-1][0] || p[i][1] !== finalPath[finalPath.length-1][1]) {
+                            finalPath.push(p[i]);
+                        }
+                    }
+                }
+                // Ensure the very last point is indeed the target end cell if path generation was odd
+                if (finalPath.length > 0) {
+                    const lastPt = finalPath[finalPath.length-1];
+                    if (lastPt[0] !== max_r || lastPt[1] !== this.endCol) {
+                        // If path didn't end at target, try to force it or log error
+                        // For now, remove last and add correct end
+                        if (lastPt[0] !== this.gridSize -1 || lastPt[1] !== this.endCol) {
+                            finalPath.push([this.gridSize - 1, this.endCol]);
+                            // Re-sanitize after adding
+                            const reSanitized = [];
+                            if (finalPath.length > 0) {
+                                reSanitized.push(finalPath[0]);
+                                for(let i = 1; i < finalPath.length; i++) {
+                                    if (finalPath[i][0] !== reSanitized[reSanitized.length-1][0] || finalPath[i][1] !== reSanitized[reSanitized.length-1][1]) {
+                                        reSanitized.push(finalPath[i]);
+                                    }
+                                }
+                                return reSanitized;
+                            }
+                        }
+                    }
+                }
+                return finalPath;
+            },
+            tileFor(inDir,outDir){
+                for(let s=0;s<this.SHAPES.length;s++){
+                    for(let rot=0;rot<4;rot++){
+                        const d=this.rot(this.SHAPES[s],rot);
+                        if(d[inDir]&&d[outDir]&&d.filter(Boolean).length===2){
+                            return {shapeIdx:s,rot};
+                        }
+                    }
+                }
+                // Fallback if no specific L or I shape matches (should be rare with complete SHAPES)
+                // This might happen if inDir and outDir are the same, indicating a 0-length segment.
+                // Default to a vertical I, hoping it's less disruptive.
+                return {shapeIdx:0,rot:0};
+            },
+
+            /* helpers */
+            shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;},
+            rot(bools,rotation){
+                const out=[false,false,false,false];
+                for(let d=0;d<4;d++) out[(d+rotation)&3] = bools[d];
+                return out;
+            },
+            dirIdx(r1,c1,r2,c2){
+                if(r2<r1) return 0; // Up
+                if(c2>c1) return 1; // Right
+                if(r2>r1) return 2; // Down
+                if(c2<c1) return 3; // Left
+                return -1; // Error: same cell
+            },
+
+            /* ───────────── solving logic ───────────── */
+            dirs(tile){
+                if (!tile || tile.shapeIdx === undefined) return [0,0,0,0]; // Handle undefined tile robustly
+                return this.rot(this.SHAPES[tile.shapeIdx],tile.rot);
+            },
+            canEnter(r,c,fromDir){
+                if(r<0||r>=this.gridSize||c<0||c>=this.gridSize) return false;
+                const tile = this.grid[r]?.[c];
+                if (!tile || tile.shapeIdx === undefined) return false; // Cell or tile not defined
+                return this.dirs(tile)[(fromDir+2)&3]; 
+            },
+            dfs(r,c,visited){
+                if(r===this.gridSize-1 && c===this.endCol) return true;
+                visited[r][c]=true;
+
+                const currentTile = this.grid[r]?.[c];
+                if (!currentTile || currentTile.shapeIdx === undefined) return false; // Should not happen if pathing correctly
+
+                const currentTileDirs=this.dirs(currentTile);
+                for(let exitDir=0; exitDir<4; exitDir++){
+                    if(currentTileDirs[exitDir]){
+                        const nr = r + this.DIRS[exitDir][0];
+                        const nc = c + this.DIRS[exitDir][1];
+                        if (nr < 0 || nr >= this.gridSize || nc < 0 || nc >= this.gridSize || visited[nr]?.[nc]) continue;
+
+                        if(this.canEnter(nr,nc,exitDir)){ // Check if neighbor can be entered from this direction
+                            if(this.dfs(nr,nc,visited)) return true;
+                        }
+                    }
+                }
+                return false;
+            },
+            isSolved(){
+                const startTile = this.grid[0]?.[this.startCol];
+                if (!startTile || !this.dirs(startTile)[2]) return false; // Must be able to exit Down from Start
+
+                const visited=Array.from({length:this.gridSize},()=>Array(this.gridSize).fill(false));
+                return this.dfs(0,this.startCol,visited);
+            },
+            trySolve(){
+                if(this.solved) return;
+                if(this.isSolved()){
+                    this.solved=true;
+                    clearInterval(this.timerId);
+                    this.timerId = null;
+                    const score=250 + (this.timeLeft * 5);
+                    this.callbacks.addToLog(`Root Circuit complete! +${score}`);
+                    this.updateInfo();
+                    this.callbacks.onWin(score);
+                }
+            },
+
+            /* ───────────── fail ───────────── */
+            gameOver(reason){
+                if(this.solved || !this.timerId) return;
+                clearInterval(this.timerId);
+                this.timerId = null;
+                this.callbacks.addToLog(`Root Circuit failed: ${reason}`);
+                this.callbacks.onLoss(reason);
+            }
         };
 
 
