@@ -888,6 +888,9 @@
             keysCollected: 0,
             finish: { r: 0, c: 0, locked: true },
             timerId: null,
+            _touchStartHandler: null,
+            _touchEndHandler : null,
+            _touchMoveHandler: null,
             timeLeft: 0,
             config: {
                 cellSize: 18, 
@@ -918,52 +921,50 @@
             },
 
             start() {
-                this.callbacks.addToLog("Maze Runner started. Use arrow keys to move.");
-                document.addEventListener('keydown', this.handleKey);
+                this.callbacks.addToLog("Maze Runner started. Swipe or use ↑ ↓ ← → to move.");
+                document.addEventListener("keydown", this.handleKey);
 
+                /* ─── mobile swipe → virtual arrow-key ─── */
                 if (isMobile) {
                     const Z = this.container;
-                    let sx = 0, sy = 0;
+                    let sx = 0, sy = 0;                                 // swipe origin
 
-                    // Prevent default behavior on touchstart and record starting coordinates
-                    Z.addEventListener('touchstart', e => {
+                    this._touchStartHandler = e => {
                         e.preventDefault();
                         const t = e.touches[0];
                         sx = t.clientX;
                         sy = t.clientY;
-                    }, { passive: false });
+                    };
 
-                    // On touchend, compute swipe direction and dispatch a real KeyboardEvent
-                    Z.addEventListener('touchend', e => {
+                    this._touchEndHandler = e => {
                         e.preventDefault();
                         const t = e.changedTouches[0];
                         const dx = t.clientX - sx;
                         const dy = t.clientY - sy;
-                        if (Math.abs(dx) < 30 && Math.abs(dy) < 30) return; // ignore small drags
+                        if (Math.abs(dx) < 30 && Math.abs(dy) < 30) return;   // ignore taps
 
                         const key = Math.abs(dx) > Math.abs(dy)
-                            ? (dx > 0 ? 'ArrowRight' : 'ArrowLeft')
-                            : (dy > 0 ? 'ArrowDown'  : 'ArrowUp');
+                            ? (dx > 0 ? "ArrowRight" : "ArrowLeft")
+                            : (dy > 0 ? "ArrowDown"  : "ArrowUp");
 
-                        const evt = new KeyboardEvent('keydown', { key, bubbles: false, cancelable: true });
-                        MazeGame.handleKey(evt);
-                    }, { passive: false });
+                        MazeGame.handleKey(new KeyboardEvent("keydown", { key }));
+                    };
 
-                    // Block scrolling while playing
-                    Z.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+                    this._touchMoveHandler = e => e.preventDefault();   // cancel scroll / pinch
+
+                    Z.addEventListener("touchstart", this._touchStartHandler, { passive: false });
+                    Z.addEventListener("touchend",   this._touchEndHandler,   { passive: false });
+                    Z.addEventListener("touchmove",  this._touchMoveHandler,  { passive: false });
                 }
 
                 this.timerId = setInterval(() => {
-                    if (this.timeLeft <= 0) return;
-                    this.timeLeft--;
+                    if (--this.timeLeft <= 0) this.gameOver("Time ran out!");
                     this.updateInfo();
-                    if (this.timeLeft <= 0) {
-                        this.gameOver("Time ran out!");
-                    }
                 }, 1000);
 
                 this.renderMaze();
             },
+
 
             end() {
                 clearInterval(this.timerId);
@@ -971,21 +972,21 @@
 
                 document.removeEventListener("keydown", this.handleKey);
 
-                if (isMobile) {
+                /* detach any swipe listeners we attached earlier */
+                if (isMobile && this._touchStartHandler) {
                     const Z = this.container;
-                    Z.removeEventListener("touchstart", this._touchStartHandler);
-                    Z.removeEventListener("touchend",   this._touchEndHandler);
-                    Z.removeEventListener("touchmove",  this._touchMoveHandler);
-                    this._touchStartHandler = null;
-                    this._touchEndHandler = null;
+                    Z.removeEventListener("touchstart", this._touchStartHandler, { passive: false });
+                    Z.removeEventListener("touchend",   this._touchEndHandler,   { passive: false });
+                    Z.removeEventListener("touchmove",  this._touchMoveHandler,  { passive: false });
+                    this._touchStartHandler =
+                    this._touchEndHandler  =
                     this._touchMoveHandler = null;
                 }
 
-                document.removeEventListener("keyup", this.handleKey); // Galaga cleanup
-                this.callbacks?.addToLog(`${this.name || "Game"} ended.`);
+                this.callbacks?.addToLog(`${this.name} ended.`);
                 this.callbacks = null;
             },
-            
+
             updateInfo() {
                 this.infoContainer.innerHTML = `<div id="maze-info">Time: ${this.timeLeft}s | Keys: ${this.keysCollected}/${this.keysToCollect}</div>`;
             },
