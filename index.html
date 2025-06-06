@@ -1930,84 +1930,68 @@
                         <g transform="rotate(${rot*90} 12 12)">${p[s]}</g></svg>`;
             },
 
-            /* ───────────── grid generation  (guaranteed-solvable scramble) ───────────── */
+            /* ───────────── grid generation  (start-solved mode) ───────────── */
             buildGrid () {
-                /* ── pick board size, start/end columns ── */
+                /* 1. choose size + start / end columns */
                 this.startCol = Math.floor(Math.random() * this.gridSize);
                 do { this.endCol = Math.floor(Math.random() * this.gridSize); }
                 while (this.endCol === this.startCol && this.gridSize > 1);
 
-                /* --- initialise empty grid objects --- */
-                this.grid = Array.from({length: this.gridSize}, () =>
-                    Array.from({length: this.gridSize}, () => ({}))
+                /* 2. allocate empty cells */
+                this.grid = Array.from({ length: this.gridSize }, () =>
+                    Array.from({ length: this.gridSize }, () => ({}))
                 );
 
-                /* ── STEP 1: build a *solved* path from S→E exactly as before ── */
-                const path = this.makePath();                        // ← uses existing helper
-                if (!path || path.length < 2) {
-                    console.error("RootCircuit: makePath() failed.");
-                    return;
-                }
+                /* 3. lay a SOLVED path S → E (existing helpers) */
+                const path = this.makePath();                    // guaranteed list of [r,c]
+                if (!path || path.length < 2) return console.error("makePath failed");
 
-                /* ▸ lay correct tiles along that path and remember the *solved* rotation */
-                const markSolved = (r, c, shapeIdx, rot) => {
-                    this.grid[r][c] = { shapeIdx, rot, rotSolved: rot };
+                const put = (r, c, shapeIdx, rot) => {
+                    this.grid[r][c] = { shapeIdx, rotSolved: rot, rot };      // rot == solved
                 };
 
                 for (let i = 0; i < path.length; i++) {
                     const [r, c] = path[i];
 
-                    if (i === 0 || i === path.length - 1) {           /* Start / End = I-vertical */
-                        markSolved(r, c, 0, 0);
+                    if (i === 0 || i === path.length - 1) {           // start / end → vertical “I”
+                        put(r, c, 0, 0);
                         continue;
                     }
-
                     const [pr, pc] = path[i - 1];
                     const [nr, nc] = path[i + 1];
                     const inDir  = this.dirIdx(pr, pc, r, c);
                     const outDir = this.dirIdx(r, c, nr, nc);
                     const { shapeIdx, rot } = this.tileFor(inDir, outDir);
-                    markSolved(r, c, shapeIdx, rot);
+                    put(r, c, shapeIdx, rot);
                 }
 
-                /* ▸ fill every *non-path* cell with a random tile (any orientation) */
+                /* 4. fill every NON-path cell with any random tile (rotation irrelevant) */
                 for (let r = 0; r < this.gridSize; r++) {
                     for (let c = 0; c < this.gridSize; c++) {
-                        if (this.grid[r][c].rotSolved === undefined) {      // not on solution path
+                        if (this.grid[r][c].rotSolved === undefined) {
                             this.grid[r][c] = {
-                                shapeIdx  : Math.floor(Math.random() * this.SHAPES.length),
-                                rotSolved : 0,                               // unused here
-                                rot       : Math.floor(Math.random() * 4)
+                                shapeIdx : Math.floor(Math.random() * this.SHAPES.length),
+                                rotSolved: 0,
+                                rot      : 0       // keep neutral so it can’t break the path
                             };
                         }
                     }
                 }
 
-                /* ── STEP 2: SCRAMBLE the board but keep it solvable ──────────
-                For every rotatable tile (anything except the fixed start/end),
-                rotate it by +90 / 180 / 270° from its solved orientation.      */
-                const scramble = () => {
-                    for (let r = 0; r < this.gridSize; r++) {
-                        for (let c = 0; c < this.gridSize; c++) {
-                            const isStart = r === 0 && c === this.startCol;
-                            const isEnd   = r === this.gridSize - 1 && c === this.endCol;
-                            if (isStart || isEnd) continue;                 // leave fixed
-
-                            const tile = this.grid[r][c];
-                            const offset = 1 + Math.floor(Math.random() * 3); // 1-3
-                            tile.rot = (tile.rotSolved + offset) & 3;
-                        }
-                    }
-                };
-
-                /* Scramble once; if (rare) board is still solved, scramble again */
-                scramble();
-                if (this.isSolved()) scramble();
+                this.solved = this.isSolved();
+                /* 5. done – no scramble; board is immediately solvable */
             },
+            
             /* build path: wander until row-1, move horiz. to endCol, then step down */
             makePath(){ // User's original makePath function
                 const p=[[0,this.startCol]];
                 let r=0,c=this.startCol;
+
+                /* ➜ guarantee we leave Start by moving down once */
+                if (this.gridSize > 1) {
+                    r = 1;
+                    p.push([r, c]);         // first step directly under the S tile
+                }
                 
                 // Ensure r and c stay within bounds during path generation for stability
                 const max_r = this.gridSize - 1;
